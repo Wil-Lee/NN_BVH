@@ -58,6 +58,7 @@ class DataLoaderFromPrimitives(Sequence):
         primitives_len = len(self.batch_primitives[0])
         quart_len = int(np.floor((primitives_len) / 4))
 
+        # TODO: Add parallelization:
         for primitives in self.batch_primitives:
             transform_size = np.random.randint(quart_len, quart_len * 3 + 1)
             transform_indices = np.random.choice(primitives_len, size=transform_size, replace=False)
@@ -150,6 +151,7 @@ class DataLoaderFromMeshes(Sequence):
         meshes_len = len(self.mesh_indices)
         quart_len = int(np.floor((meshes_len) / 4))
 
+        # TODO: Add parallelization:
         for primitives in self.batch_primitives:
             transform_size = np.random.randint(quart_len, quart_len * 3 + 1)
             transform_indices = np.random.choice(meshes_len, size=transform_size, replace=False)
