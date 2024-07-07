@@ -1,5 +1,6 @@
 from nn_mesh_list import *
 from nn_types import *
+import numpy as np
     
 
 def parse_obj_file_with_primitives(file_path: str):
@@ -15,7 +16,7 @@ def parse_obj_file_with_primitives(file_path: str):
                 continue
 
             if line[0] == 'v':
-                vertices.append((float(line[1]), float(line[2]), float(line[3])))
+                vertices.append(np.array( [float(line[1]), float(line[2]), float(line[3])] ))
                 continue 
 
             if line[0] == 'f':
@@ -23,9 +24,11 @@ def parse_obj_file_with_primitives(file_path: str):
                 for i in range(1, len(line)):
                     vertex_indices.append(int(line[i].split('/')[0]) - 1)
 
-                primitives.append((vertices[vertex_indices[0]], 
-                                    vertices[vertex_indices[1]], 
-                                    vertices[vertex_indices[2]]))
+                primitives.append(np.array([
+                    vertices[vertex_indices[0]], 
+                    vertices[vertex_indices[1]], 
+                    vertices[vertex_indices[2]]
+                    ]))
     return primitives
 
 
@@ -46,7 +49,7 @@ def parse_obj_file_with_meshes(file_path: str):
                 continue
 
             if line[0] == 'v':
-                vertices.append((float(line[1]), float(line[2]), float(line[3])))
+                vertices.append(np.array( [float(line[1]), float(line[2]), float(line[3])] ))
                 continue 
 
             if line[0] == 'f':
@@ -54,9 +57,11 @@ def parse_obj_file_with_meshes(file_path: str):
                 for i in range(1, len(line)):
                     vertex_indices.append(int(line[i].split('/')[0]) - 1)
 
-                mesh.append(((vertices[vertex_indices[0]], 
-                              vertices[vertex_indices[1]], 
-                              vertices[vertex_indices[2]])))
+                mesh.append(np.array([
+                    vertices[vertex_indices[0]], 
+                    vertices[vertex_indices[1]], 
+                    vertices[vertex_indices[2]]
+                    ]))
                 continue
 
             if line[0] == 'o':

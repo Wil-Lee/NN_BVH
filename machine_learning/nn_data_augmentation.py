@@ -65,7 +65,7 @@ class DataLoaderFromPrimitives(Sequence):
 
             for i in transform_indices:
                 # TODO: adapt transformations later --> add rotations (and cleanup hardcoded cases)
-                #       bound check doesn't work completly as intended (negative numbers) but will, 
+                #       bound check doesn't work completely as intended (negative numbers) but will, 
                 #       when the input scene is scaled down so that every coord lies between [0,1]
                 case = np.random.randint(0,6)
                 # positive x direction
