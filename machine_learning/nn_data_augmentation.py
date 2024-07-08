@@ -124,18 +124,28 @@ class DataLoaderFromMeshes(Sequence):
 
         self.length = int(np.ceil(self.data_size / self.batch_size))
         
-        # devides the aabb into equally sized cuboids
+        # devides the aabb of the scene into equally sized cuboids
         resolution = data_size ** (1/3)
-        self._width_x = (aabb.x_max - aabb.x_min)
-        self._width_y = (aabb.y_max - aabb.y_min)
-        self._width_z = (aabb.z_max - aabb.z_min)
-        self._step_x = self._width_x / resolution
-        self._step_y = self._width_y / resolution
-        self._step_z = self._width_z / resolution
+        width_x = (aabb.x_max - aabb.x_min)
+        width_y = (aabb.y_max - aabb.y_min)
+        width_z = (aabb.z_max - aabb.z_min)
+        step_x = width_x / resolution
+        step_y = width_y / resolution
+        step_z = width_z / resolution
 
-        self.batch_primitives : list[np.ndarray] = []
+        self.tranformations = np.array([step_x, -step_x, step_y, -step_y, step_z, -step_z])
+
+        self.batch_primitives: list[np.ndarray] = []
         for _ in range(0, batch_size):
             self.batch_primitives.append(np.array(meshes.primitives))
+
+        self.batch_primitives_AABBs = [[] for _ in range(batch_size)]
+        for mesh_interval in meshes.mesh_indices:
+            mesh = meshes.primitives[mesh_interval.low:mesh_interval.up]
+            aabb = get_AABB_from_primitives(mesh)
+            for i in range(0, batch_size):
+                self.batch_primitives_AABBs[i].append(aabb.copy())
+
 
     def __len__(self):
         """
@@ -154,52 +164,36 @@ class DataLoaderFromMeshes(Sequence):
         # TODO: Add parallelization:
         for primitives in self.batch_primitives:
             transform_size = np.random.randint(quart_len, quart_len * 3 + 1)
+            # indices of the meshes that shall be transformed
             transform_indices = np.random.choice(meshes_len, size=transform_size, replace=False)
 
             for m in transform_indices:
                 interval = self.mesh_indices[m]
-
                 case = np.random.randint(0,6)
-                # TODO: adapt transformations later --> add rotations (and cleanup hardcoded cases)
-                #       bound check doesn't work completly as intended (negative numbers) but will, 
-                #       when the input scene is scaled down so that every coord lies between [0,1]
-                    
-                # positive x direction
-                if case == 0:
+                # TODO: adapt transformations later --> add rotations   
+                # x direction
+                if case < 2:
+                    transformation = self.tranformations[case]
                     for i in range(interval.low, interval.up):
-                        primitives[i][0][0] = (primitives[i][0][0] + self._step_x) % self._width_x
-                        primitives[i][1][0] = (primitives[i][1][0] + self._step_x) % self._width_x
-                        primitives[i][2][0] = (primitives[i][2][0] + self._step_x) % self._width_x
-                # negative x direction
-                elif case == 1:
+                        primitives[i][0][0] += transformation
+                        primitives[i][1][0] += transformation
+                        primitives[i][2][0] += transformation
+        
+                # y direction
+                elif case < 4:
+                    transformation = self.tranformations[case]
                     for i in range(interval.low, interval.up):
-                        primitives[i][0][0] = (primitives[i][0][0] - self._step_x) % self._width_x
-                        primitives[i][1][0] = (primitives[i][1][0] - self._step_x) % self._width_x
-                        primitives[i][2][0] = (primitives[i][2][0] - self._step_x) % self._width_x
-                # positive y direction
-                elif case == 2:
+                        primitives[i][0][1] += transformation
+                        primitives[i][1][1] += transformation
+                        primitives[i][2][1] += transformation
+
+                # z direction
+                else:
+                    transformation = self.tranformations[case]
                     for i in range(interval.low, interval.up):
-                        primitives[i][0][1] = (primitives[i][0][1] + self._step_y) % self._width_y
-                        primitives[i][1][1] = (primitives[i][1][1] + self._step_y) % self._width_y
-                        primitives[i][2][1] = (primitives[i][2][1] + self._step_y) % self._width_y
-                # negative y direction
-                elif case == 3:
-                    for i in range(interval.low, interval.up):
-                        primitives[i][0][1] = (primitives[i][0][1] - self._step_y) % self._width_y
-                        primitives[i][1][1] = (primitives[i][1][1] - self._step_y) % self._width_y
-                        primitives[i][2][1] = (primitives[i][2][1] - self._step_y) % self._width_y
-                # positive z direction
-                elif case == 4:
-                    for i in range(interval.low, interval.up):
-                        primitives[i][0][2] = (primitives[i][0][2] + self._step_z) % self._width_z
-                        primitives[i][1][2] = (primitives[i][1][2] + self._step_z) % self._width_z
-                        primitives[i][2][2] = (primitives[i][2][2] + self._step_z) % self._width_z
-                # negative z direction
-                elif case == 5:
-                    for i in range(interval.low, interval.up):
-                        primitives[i][0][2] = (primitives[i][0][2] - self._step_z) % self._width_z
-                        primitives[i][1][2] = (primitives[i][1][2] - self._step_z) % self._width_z
-                        primitives[i][2][2] = (primitives[i][2][2] - self._step_z) % self._width_z
+                        primitives[i][0][2] += transformation
+                        primitives[i][1][2] += transformation
+                        primitives[i][2][2] += transformation
                 
         return self.batch_primitives
     
