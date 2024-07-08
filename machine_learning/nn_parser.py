@@ -217,6 +217,4 @@ def scale_scene(primitives: list[Primitive3], lower_limit: int = 0, upper_limit:
         p[2][1] /= max_extent
         p[2][2] /= max_extent
 
-
     return primitives
-    
