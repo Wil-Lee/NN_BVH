@@ -119,7 +119,7 @@ class DataLoaderFromMeshes(Sequence):
     def __init__(self, data_size: int, batch_size: int, meshes: Mesh3List, aabb: AABB):
         self.data_size = data_size
         self.batch_size = batch_size
-        self.aabb = aabb
+        self.scene_bounds = aabb
         self.mesh_indices = meshes.mesh_indices
 
         self.length = int(np.ceil(self.data_size / self.batch_size))
@@ -162,7 +162,7 @@ class DataLoaderFromMeshes(Sequence):
         quart_len = int(np.floor((meshes_len) / 4))
 
         # TODO: Add parallelization:
-        for primitives in self.batch_primitives:
+        for batch_idx, primitives in enumerate(self.batch_primitives):
             transform_size = np.random.randint(quart_len, quart_len * 3 + 1)
             # indices of the meshes that shall be transformed
             transform_indices = np.random.choice(meshes_len, size=transform_size, replace=False)
@@ -173,45 +173,93 @@ class DataLoaderFromMeshes(Sequence):
                 # TODO: adapt transformations later --> add rotations   
                 # x direction
                 if case < 2:
-                    transformation = self.tranformations[case]
-                    for i in range(interval.low, interval.up):
-                        primitives[i][0][0] += transformation
-                        primitives[i][1][0] += transformation
-                        primitives[i][2][0] += transformation
+                    translation = self.tranformations[case]
+                    # bound check
+                    if case == 0 and self.batch_primitives_AABBs[batch_idx][m].x_max + translation > self.scene_bounds.x_max:
+                        if (self.batch_primitives_AABBs[batch_idx][m].x_min + self.tranformations[1] > self.scene_bounds.x_min):
+                            translation = self.tranformations[1]
+                        else:
+                            translation = 0
+                    elif case == 1 and self.batch_primitives_AABBs[batch_idx][m].x_min + translation < self.scene_bounds.x_min:
+                        if (self.batch_primitives_AABBs[batch_idx][m].x_max + self.tranformations[0] < self.scene_bounds.x_max):
+                            translation = self.tranformations[0]
+                        else:
+                            translation = 0
+
+                    if translation != 0:
+                        for i in range(interval.low, interval.up):
+                            primitives[i][0][0] += translation
+                            primitives[i][1][0] += translation
+                            primitives[i][2][0] += translation
+
+                        self.batch_primitives_AABBs[batch_idx][m].x_max += translation
+                        self.batch_primitives_AABBs[batch_idx][m].x_min += translation
         
                 # y direction
                 elif case < 4:
-                    transformation = self.tranformations[case]
-                    for i in range(interval.low, interval.up):
-                        primitives[i][0][1] += transformation
-                        primitives[i][1][1] += transformation
-                        primitives[i][2][1] += transformation
+                    translation = self.tranformations[case]
+                    # bound check
+                    if case == 2 and self.batch_primitives_AABBs[batch_idx][m].y_max + translation > self.scene_bounds.y_max:
+                        if (self.batch_primitives_AABBs[batch_idx][m].y_min + self.tranformations[3] > self.scene_bounds.y_min):
+                            translation = self.tranformations[3]
+                        else:
+                            translation = 0
+                    elif case == 3 and self.batch_primitives_AABBs[batch_idx][m].y_min + translation < self.scene_bounds.y_min:
+                        if (self.batch_primitives_AABBs[batch_idx][m].y_max + self.tranformations[2] < self.scene_bounds.y_max):
+                            translation = self.tranformations[2]
+                        else:
+                            translation = 0
+
+                    if translation != 0:
+                        for i in range(interval.low, interval.up):
+                            primitives[i][0][1] += translation
+                            primitives[i][1][1] += translation
+                            primitives[i][2][1] += translation
+
+                        self.batch_primitives_AABBs[batch_idx][m].y_max += translation
+                        self.batch_primitives_AABBs[batch_idx][m].y_min += translation
 
                 # z direction
                 else:
-                    transformation = self.tranformations[case]
-                    for i in range(interval.low, interval.up):
-                        primitives[i][0][2] += transformation
-                        primitives[i][1][2] += transformation
-                        primitives[i][2][2] += transformation
+                    translation = self.tranformations[case]
+                    # bound check
+                    if case == 4 and self.batch_primitives_AABBs[batch_idx][m].z_max + translation > self.scene_bounds.z_max:
+                        if (self.batch_primitives_AABBs[batch_idx][m].z_min + self.tranformations[5] > self.scene_bounds.z_min):
+                            translation = self.tranformations[5]
+                        else:
+                            translation = 0
+                    elif case == 5 and self.batch_primitives_AABBs[batch_idx][m].z_min + translation < self.scene_bounds.z_min:
+                        if (self.batch_primitives_AABBs[batch_idx][m].z_max + self.tranformations[4] < self.scene_bounds.z_max):
+                            translation = self.tranformations[4]
+                        else:
+                            translation = 0
+
+                    if translation != 0:
+                        for i in range(interval.low, interval.up):
+                            primitives[i][0][2] += translation
+                            primitives[i][1][2] += translation
+                            primitives[i][2][2] += translation
+                    
+                        self.batch_primitives_AABBs[batch_idx][m].z_max += translation
+                        self.batch_primitives_AABBs[batch_idx][m].z_min += translation
                 
         return self.batch_primitives
     
+
     def __is_in_bounds__(self, shift: float, axis: str, mesh_aabb: AABB):
         if axis == 'x':
             if shift >= 0:
-                return mesh_aabb.x_max + shift <= self.aabb.x_max
+                return mesh_aabb.x_max + shift <= self.scene_bounds.x_max
             else:
-                return mesh_aabb.x_min - shift >= self.aabb.x_min
+                return mesh_aabb.x_min - shift >= self.scene_bounds.x_min
         elif axis == 'y':
             if shift >= 0:
-                return mesh_aabb.y_max + shift <= self.aabb.y_max
+                return mesh_aabb.y_max + shift <= self.scene_bounds.y_max
             else:
-                return mesh_aabb.y_min - shift >= self.aabb.y_min
+                return mesh_aabb.y_min - shift >= self.scene_bounds.y_min
         elif axis == 'z':
             if shift >= 0:
-                return mesh_aabb.z_max + shift <= self.aabb.z_max
+                return mesh_aabb.z_max + shift <= self.scene_bounds.z_max
             else:
-                return mesh_aabb.z_min - shift >= self.aabb.z_min
+                return mesh_aabb.z_min - shift >= self.scene_bounds.z_min
         
-    
