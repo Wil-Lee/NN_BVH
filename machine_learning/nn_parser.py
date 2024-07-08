@@ -1,10 +1,105 @@
+from nn_AABB import *
 from nn_mesh_list import *
 from nn_types import *
 import numpy as np
-    
 
+def parse_pbrt_file_with_meshes(file_path: str):
+    """ Parses the provided file into a set of meshes. """
+    mesh_list = Mesh3List()
+    
+    mesh_idx = -1
+    mesh_indices : list[list[int]] = []
+    vertices_list: list[list[Vertex3]] = []
+
+    reading_indices: bool = False
+    reading_vertices: bool = False
+
+    with open(file_path, 'r') as pbrt_file:
+        for l in pbrt_file:
+            line = l.strip().split()
+
+            if not len(line):
+                continue
+
+            if reading_indices:
+                if line [len(line) - 1] == "]":
+                    reading_indices = False
+                    for i in range(0, len(line) - 1):
+                        mesh_indices[mesh_idx].append(int(line[i]))
+                    continue
+                for idx in line:
+                    mesh_indices[mesh_idx].append(int(idx))
+                continue
+
+            if reading_vertices:
+                if line [len(line) - 1] == "]":
+                    reading_vertices= False
+                    for i in range(0, len(line) - 1, 3):
+                        vertices_list[mesh_idx].append(
+                            np.array([float(line[i]), float(line[i+1]), float(line[i+2])])
+                            )
+                    continue
+                for i in range(0, len(line), 3):
+                    vertices_list[mesh_idx].append(
+                        np.array([float(line[i]), float(line[i+1]), float(line[i+2])])
+                        )
+
+
+            if (line[0] != "\"integer" or line[1] != "indices\"") and (line[0] != "\"point3" or line[1] != "P\"" ):
+                continue
+
+            if line[0] == "\"integer":
+                reading_indices = True
+                mesh_indices.append([])
+                mesh_idx += 1
+
+                mesh_indices[mesh_idx].append(int(line[2].split('[')[1]))
+
+                # special case for one liner
+                length = len(line)
+                if line[length - 1] == ']':
+                    length -= 1
+                    reading_indices = False
+
+                for i in range(3, length):
+                    mesh_indices[mesh_idx].append(int(line[i]))
+                continue
+
+            if line[0] == "\"point3":
+                reading_vertices = True
+                vertices_list.append([])
+
+                vertices_list[mesh_idx].append(
+                    np.array([float(line[2].split('[')[1]), float(line[3]), float(line[4])])
+                    )
+
+                # special case for one liner
+                length = len(line)
+                if line[length - 1] == ']':
+                    length -= 1
+                    reading_vertices = False
+
+                for i in range(5, len(line), 3):
+                    vertices_list[mesh_idx].append(
+                        np.array([float(line[i]), float(line[i+1]), float(line[i+2])])
+                        )
+                continue
+    
+    for mesh_index in range(0, len(mesh_indices)):
+        indices = mesh_indices[mesh_index]
+        vertices = vertices_list[mesh_index]
+        mesh: Mesh3 = []
+        for i in range(0, len(indices), 3):
+            mesh.append(
+                np.array([vertices[indices[i]], vertices[indices[i+1]], vertices[indices[i+2]]])
+                )
+        mesh_list.append(mesh)
+
+    return mesh_list
+
+"""
 def parse_obj_file_with_primitives(file_path: str):
-    """ Parses the provided file into a set of primitives. """
+    \""" NOT WORKING!!! Parses the provided file into a set of primitives. \"""
     vertices: list[Vertex3] = []
     primitives: list[Primitive3] = []
     with open(file_path, 'r') as obj_file:
@@ -30,7 +125,7 @@ def parse_obj_file_with_primitives(file_path: str):
                     vertices[vertex_indices[2]]
                     ]))
     return primitives
-
+"""
 
 def parse_obj_file_with_meshes(file_path: str):
     """ Parses the provided file into a set of meshes. """
