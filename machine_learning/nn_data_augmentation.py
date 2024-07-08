@@ -203,3 +203,21 @@ class DataLoaderFromMeshes(Sequence):
                 
         return self.batch_primitives
     
+    def __is_in_bounds__(self, shift: float, axis: str, mesh_aabb: AABB):
+        if axis == 'x':
+            if shift >= 0:
+                return mesh_aabb.x_max + shift <= self.aabb.x_max
+            else:
+                return mesh_aabb.x_min - shift >= self.aabb.x_min
+        elif axis == 'y':
+            if shift >= 0:
+                return mesh_aabb.y_max + shift <= self.aabb.y_max
+            else:
+                return mesh_aabb.y_min - shift >= self.aabb.y_min
+        elif axis == 'z':
+            if shift >= 0:
+                return mesh_aabb.z_max + shift <= self.aabb.z_max
+            else:
+                return mesh_aabb.z_min - shift >= self.aabb.z_min
+        
+    
