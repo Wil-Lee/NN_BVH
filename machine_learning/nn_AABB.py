@@ -12,7 +12,11 @@ class AABB:
         self.z_max = z_max
 
     def is_empty(self):
+        """" Returns true if the AABB is degenerated. """
         return self.x_min >= self.x_max or self.y_min >= self.y_max or self.z_min >= self.z_max
+    
+    def copy(self):
+        return AABB(self.x_min, self.x_max, self.y_min, self.y_max, self.z_min, self.z_max)
 
 # Returns the AABB which encloses all vertices given in the argument.
 def get_AABB_from_vertices(vertices):
