@@ -134,8 +134,12 @@ class DataLoaderFromMeshes(Sequence):
         step_z = width_z / resolution
 
         # ugly code to avoid branching - optimization for grid transformations
+        self.scene_extends: list[float] = []
+        self.scene_extends.append(width_x)
+        self.scene_extends.append(width_y)
+        self.scene_extends.append(width_z)
         self.tranformations = np.array([step_x, step_y, step_z])
-        self.scene_bounds_list = []
+        self.scene_bounds_list: list[float] = []
         self.scene_bounds_list.append(aabb.x_max)
         self.scene_bounds_list.append(aabb.y_max)
         self.scene_bounds_list.append(aabb.z_max)
@@ -176,6 +180,9 @@ class DataLoaderFromMeshes(Sequence):
         """
         Generates a set (len = batch size) of transformations of the scene and returns it.
         """
+
+        return self.random_scene_shift()
+
         meshes_len = len(self.mesh_indices)
         quart_len = int(np.floor((meshes_len) / 4))
         # shift to access the minimum axis bounds
@@ -183,10 +190,10 @@ class DataLoaderFromMeshes(Sequence):
 
         # TODO: Add parallelization:
         for batch_idx, primitives in enumerate(self.batch_primitives):
+
             transform_size = np.random.randint(quart_len, quart_len * 3 + 1)
             # indices of the meshes that shall be transformed
             transform_indices = np.random.choice(meshes_len, size=transform_size, replace=False)
-
             for m in transform_indices:
                 interval = self.mesh_indices[m]
                 # choose random axis: 0=x, 1=y, 2=z
@@ -194,10 +201,10 @@ class DataLoaderFromMeshes(Sequence):
                 pos_or_neg = 2 * np.random.randint(0, 2) - 1
                 translation = pos_or_neg * self.tranformations[axis]
 
-                # bound check for the shiftet AABB of the mesh with index m - code is ugly to allow less branches in this loop
+                # bound check for the shifted AABB of the mesh with index m - code is ugly to allow less branches in this loop
                 if (self.batch_primitives_AABB_lists[batch_idx][m][axis] + translation > self.scene_bounds_list[axis]
                     or self.batch_primitives_AABB_lists[batch_idx][m][min + axis] + translation < self.scene_bounds_list[min + axis]):
-                    # flip translation and 
+                    # flip translation if mesh moved out of bounce and check bounds again
                     translation = -translation
                     if (self.batch_primitives_AABB_lists[batch_idx][m][axis] + translation > self.scene_bounds_list[axis]
                         and self.batch_primitives_AABB_lists[batch_idx][m][min + axis] + translation < self.scene_bounds_list[min + axis]): 
@@ -212,4 +219,35 @@ class DataLoaderFromMeshes(Sequence):
                 
         return self.batch_primitives
     
+    def random_scene_shift(self): 
+        meshes_len = len(self.mesh_indices)
+        quart_len = int(np.floor((meshes_len) / 4))
+        # shift to access the minimum axis bounds
+        min = 3
+
+        # TODO: Add parallelization:
+        for batch_idx, primitives in enumerate(self.batch_primitives):
+
+            transform_size = np.random.randint(quart_len, quart_len * 3 + 1)
+            # indices of the meshes that shall be transformed
+            transform_indices = np.random.choice(meshes_len, size=transform_size, replace=False)
+            for m in transform_indices:
+                interval = self.mesh_indices[m]
+                # choose random axis: 0=x, 1=y, 2=z
+                axis = np.random.randint(0,3)
+                shift_factor = np.random.rand()
+                new_pos = shift_factor * self.scene_extends[axis]
+                             
+                translation = new_pos - self.batch_primitives_AABB_lists[batch_idx][m][axis]
+                if (self.batch_primitives_AABB_lists[batch_idx][m][axis] + translation > self.scene_bounds_list[axis]
+                    or self.batch_primitives_AABB_lists[batch_idx][m][min + axis] + translation < self.scene_bounds_list[min + axis]):
+                    continue
+
+                for i in range(interval.low, interval.up):
+                    primitives[i][0][axis] += translation
+                    primitives[i][1][axis] += translation
+                    primitives[i][2][axis] += translation
+                self.batch_primitives_AABB_lists[batch_idx][m][axis] += translation
+                self.batch_primitives_AABB_lists[batch_idx][m][min + axis] += translation
         
+        return self.batch_primitives
