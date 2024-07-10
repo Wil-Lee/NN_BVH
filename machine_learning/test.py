@@ -49,8 +49,6 @@ def draw_scene_bounding_box(aabb: AABB, plotter):
 #path = "machine_learning/Room.obj"
 path = "machine_learning/bbedroom.pbrt"
 
-
-
 #primitives = parse_obj_file_with_primitives(path)
 #aabb = get_AABB_from_primitives(primitives)
 #loader = DataLoaderFromPrimitives(1000000, 1, primitives, aabb)
@@ -78,10 +76,10 @@ if 1:
     plotter.clear()
 
 
-for i in range(0,20):
+for i in range(0,10):
     plotter = pv.Plotter()
     with bench(f'Generating batch (size: {batch_size}) of transformed scenes'):
-        #for i in range(300):
+        for i in range(30):
             primitives = loader.__getitem__(0)[0]
 
     points = np.array([vertex for primitive in primitives for vertex in primitive])
@@ -95,6 +93,3 @@ for i in range(0,20):
 
     plotter.show()
     plotter.clear()
-
-
-

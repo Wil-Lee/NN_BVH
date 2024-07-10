@@ -235,13 +235,17 @@ class DataLoaderFromMeshes(Sequence):
                 interval = self.mesh_indices[m]
                 # choose random axis: 0=x, 1=y, 2=z
                 axis = np.random.randint(0,3)
-                shift_factor = np.random.rand()
-                new_pos = shift_factor * self.scene_extends[axis]
+
+                mesh_aabb_extend = self.batch_primitives_AABB_lists[batch_idx][m][axis] - self.batch_primitives_AABB_lists[batch_idx][m][min + axis]
+                halve_extend = mesh_aabb_extend / 2
+                # guaranties that the new position is in bound
+                lower_bound = self.scene_bounds_list[min + axis] + halve_extend
+                upper_bound = self.scene_bounds_list[axis] - halve_extend
+                # in regard to the middle point of the aabb
+                new_pos = np.random.uniform(lower_bound, upper_bound)
+                current_pos = self.batch_primitives_AABB_lists[batch_idx][m][axis] - halve_extend
                              
-                translation = new_pos - self.batch_primitives_AABB_lists[batch_idx][m][axis]
-                if (self.batch_primitives_AABB_lists[batch_idx][m][axis] + translation > self.scene_bounds_list[axis]
-                    or self.batch_primitives_AABB_lists[batch_idx][m][min + axis] + translation < self.scene_bounds_list[min + axis]):
-                    continue
+                translation = new_pos - current_pos
 
                 for i in range(interval.low, interval.up):
                     primitives[i][0][axis] += translation
