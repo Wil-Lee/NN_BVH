@@ -147,7 +147,7 @@ class DataLoaderFromMeshes(Sequence):
         for _ in range(0, batch_size):
             self.batch_primitives.append(np.array(meshes.primitives))
 
-        # ugly code to avoid branching - optimization for grid transformations
+        # ugly code to avoid branching - optimization for grid transformations -> for each batch: AABBs of meshes
         self.batch_primitives_AABB_lists = [[[] for _ in range(len(meshes.mesh_indices))] for _ in range(batch_size)]
 
         self.batch_primitives_AABBs = [[] for _ in range(batch_size)]
