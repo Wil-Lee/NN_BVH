@@ -1,11 +1,31 @@
 from nn_AABB import *
 from nn_types import *
 
+# maybe needed for later if model is implemented
+"""
+class BVH:
+    def __init__(self, scene_primitives: list[Primitive3], scene_aabb: AABB, max_prim_per_leaf: int=2):
+        self.head: BVHNode = BVHNode(scene_aabb, scene_primitives)
+        self.max_prim_per_leaf: int = max_prim_per_leaf
+    
+    def build_recursive(self):
+        # TODO: add recursive build of bvh
+        return
+"""
+
 class BVHNode:
+    """
+    This class represents a BVH node.
+
+    Attributes:
+        aabb: Axis aligned bounding box of this node.
+        pritmitives: Primitives enclosed by the aabb.
+    """
     def __init__(self, aabb: AABB, primitives: list[Primitive3]):
-        self.bounding_box = aabb
-        # TODO: maybe use indices into the primitive array in case the primitives get copied while beeing sliced
-        self.primitives = primitives
+        self.bounding_box: AABB = aabb
+        self.primitives: list[Primitive3] = primitives
+
+        self.is_leaf = primitives
 
     def split(self, split_axis: Axis, axis_pos: float):
         """ Splits a node by the given split axis and its position into two nodes. """
