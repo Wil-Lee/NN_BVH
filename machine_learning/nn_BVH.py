@@ -12,8 +12,6 @@ class BVHNode:
         """ Splits a node by the given split axis and its position into two nodes. """
         left_primitives = []
         right_primitives = []
-        right_new_minimum = sys.float_info.max
-        left_new_maximum = sys.float_info.min
 
         for i in range(len(self.primitives)):
             # the maximum extend of the primitive in regard to the current split
