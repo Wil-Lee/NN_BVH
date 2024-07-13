@@ -1,56 +1,45 @@
 from nn_AABB import *
 from nn_types import *
+import sys
 
 class BVHNode:
     def __init__(self, aabb: AABB, primitives: list[Primitive3]):
         self.bounding_box = aabb
-        # maybe use indices into the primitive array in case the primitives get copied while beeing sliced
+        # TODO: maybe use indices into the primitive array in case the primitives get copied while beeing sliced
         self.primitives = primitives
 
     def split(self, split_axis: Axis, axis_pos: float):
-        # maybe it would be faster to just sort the primitives directly instead of making a copy
-        sorted_primitives = sorted(self.primitives, key=self.__primitive_comperator_max__(split_axis=split_axis), reverse=False)
+        """ Splits a node by the given split axis and its position into two nodes. """
+        left_primitives = []
+        right_primitives = []
+        right_new_minimum = sys.float_info.max
+        left_new_maximum = sys.float_info.min
 
-        lower_split_index = self.__binary_search__(sorted_primitives, split_axis, axis_pos)
-
-
-        for i in range(lower_split_index, len(sorted_primitives)):
-            if min(sorted_primitives[i][0][split_axis], 
-                   sorted_primitives[i][1][split_axis], 
-                   sorted_primitives[i][2][split_axis]):
-                i = 3
-
-
-
-        return BVHNode
-    
-    def __primitive_comperator_max__(primitive: Primitive3, split_axis: Axis):
-        return max(primitive[0][split_axis], primitive[1][split_axis], primitive[2][split_axis])
-    
-    def __primitive_comperator_min__(primitive: Primitive3, split_axis: Axis):
-        return min(primitive[0][split_axis], primitive[1][split_axis], primitive[2][split_axis])
-    
-
-    
-    def __binary_search__(primitives: list[Primitive3], split_axis: Axis, axis_pos: float):
-        """ Returns the index of the of the first primitive which crosses the split axis. """
-        left = 0
-        right = len(primitives) - 1
-        
-        while left < right:
-            mid = (left + right) // 2
-
-            mid_max_vertex = max(primitives[mid][0][split_axis], primitives[mid][1][split_axis], primitives[mid][2][split_axis]) 
+        for i in range(len(self.primitives)):
+            # the maximum extend of the primitive in regard to the current split
+            max_primitive = max(self.primitives[i][0][split_axis], 
+                                self.primitives[i][1][split_axis], 
+                                self.primitives[i][2][split_axis])
             
-            # maybe it would be faster to create a aabb for each primitive at the top level of the bvh to avoid these max calls 
-            if ( mid_max_vertex < axis_pos
-                and axis_pos <= max(primitives[mid + 1][0][split_axis], primitives[mid + 1][1][split_axis], primitives[mid + 1][2][split_axis])):
-                return mid + 1
-           
-            elif mid_max_vertex > axis_pos:
-                right = mid - 1
+            if max_primitive < split_axis:
+                left_primitives.append(self.primitives[i])
             
+            # the minimum extend of the primitive in regard to the current split
+            min_primitive = min(self.primitives[i][0][split_axis], 
+                                self.primitives[i][1][split_axis], 
+                                self.primitives[i][2][split_axis])
+            
+            if min_primitive >= split_axis:
+                right_primitives.append(self.primitives[i])
+
+            # add primitives which crosses the split axis to the left if the part left of the axis 
+            # is bigger than the right part, to the right otherwise
+            if axis_pos - min_primitive > max_primitive - axis_pos:
+                left_primitives.append(self.primitives[i])
             else:
-                left = mid + 1
+                right_primitives.append(self.primitives[i])
+
+        left_aabb = get_AABB_from_primitives(left_primitives)
+        right_aabb = get_AABB_from_primitives(right_primitives)
         
-        return 0
+        return BVHNode(left_aabb, left_primitives), BVHNode(right_aabb, right_primitives)
