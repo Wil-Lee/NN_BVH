@@ -13,6 +13,8 @@ class BVH:
         return
 """
 
+MAX_PRIMITIVES_PER_LEAF = 2
+
 class BVHNode:
     """
     This class represents a BVH node.
@@ -25,10 +27,21 @@ class BVHNode:
         self.bounding_box: AABB = aabb
         self.primitives: list[Primitive3] = primitives
 
-        self.is_leaf = primitives
+        self.is_leaf = len(primitives) > MAX_PRIMITIVES_PER_LEAF
+        self.left_child: BVHNode
+        self.right_child: BVHNode
 
     def split(self, split_axis: Axis, axis_pos: float):
-        """ Splits a node by the given split axis and its position into two nodes. """
+        """ 
+        Splits a node by the given split axis and its position into two nodes.
+        
+        Returns true if node is not a leaf
+                otherwise false.
+        """
+
+        if self.is_leaf:
+            return False
+
         left_primitives = []
         right_primitives = []
 
@@ -58,5 +71,7 @@ class BVHNode:
 
         left_aabb = get_AABB_from_primitives(left_primitives)
         right_aabb = get_AABB_from_primitives(right_primitives)
-        
-        return BVHNode(left_aabb, left_primitives), BVHNode(right_aabb, right_primitives)
+        self.left_child = BVHNode(left_aabb, left_primitives)
+        self.right_child = BVHNode(right_aabb, right_primitives)
+
+        return True
