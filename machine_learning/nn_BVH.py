@@ -1,6 +1,5 @@
 from nn_AABB import *
 from nn_types import *
-import sys
 
 class BVHNode:
     def __init__(self, aabb: AABB, primitives: list[Primitive3]):
