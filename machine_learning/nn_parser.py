@@ -159,7 +159,7 @@ def parse_obj_file_with_meshes(file_path: str):
                     ]))
                 continue
 
-            if line[0] == 'o':
+            if line[0] == 'g':
                 mesh_list.append(mesh)
                 mesh_idx += 1
                 mesh = []
