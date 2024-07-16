@@ -127,6 +127,9 @@ class DataLoaderFromMeshes(Sequence):
 
         
     def __step_shift__(self):
+        """
+        Generates a set (len = batch size) of transformations of the scene and returns it by shifting the scene by a step determinded by the data_size
+        """
         meshes_len = len(self.mesh_indices)
         quart_len = int(np.floor((meshes_len) / 4))
         # shift to access the minimum axis bounds
