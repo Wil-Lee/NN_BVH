@@ -27,13 +27,16 @@ class BVHNode:
         self.aabb: AABB = aabb
         self.primitives: list[Primitive3] = primitives
 
-        self.is_leaf = len(primitives) < MAX_PRIMITIVES_PER_LEAF
+        self.is_leaf = len(primitives) <= MAX_PRIMITIVES_PER_LEAF
+        self.parent: BVHNode = None
         self.left_child: BVHNode
         self.right_child: BVHNode
+        if __debug__:
+            self.layer = 0
 
     def split(self, split_axis: Axis, axis_pos: float):
         """ 
-        Splits a node by the given split axis and its position into two nodes.
+        Splits a node into two nodes by projecting the the scene to the split_axis and splitting it at axis_pos.
         
         Returns true if node is not a leaf
                 otherwise false.
@@ -78,6 +81,8 @@ class BVHNode:
         left_aabb = get_AABB_from_primitives(left_primitives)
         right_aabb = get_AABB_from_primitives(right_primitives)
         self.left_child = BVHNode(left_aabb, left_primitives)
+        self.left_child.parent = self
         self.right_child = BVHNode(right_aabb, right_primitives)
+        self.right_child.parent = self
 
         return True
