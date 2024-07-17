@@ -86,3 +86,24 @@ class BVHNode:
         self.right_child.parent = self
 
         return True
+    
+
+    def to_list(self):
+        """ Converts the BVH to a list of its nodes separated in inner and leafs. """
+        inner_nodes: list[BVHNode] = []
+        leaf_nodes: list[BVHNode] = []
+        if self.is_leaf:
+            return (inner_nodes.append(self))
+
+        nodes_to_check: list[BVHNode] = []
+        nodes_to_check.append(self)
+
+        while len(nodes_to_check):
+            current_node = nodes_to_check.pop()
+            while not current_node.is_leaf:
+                inner_nodes.append(current_node)
+                nodes_to_check.append(current_node.right_child)
+                current_node = current_node.left_child
+            leaf_nodes.append(current_node)
+
+        return inner_nodes, leaf_nodes
