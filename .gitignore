@@ -9,4 +9,5 @@ build/
 *.vsxproj
 src/ext/*
 .vs/*
+.vscode/*
 machine_learning/__pycache__
