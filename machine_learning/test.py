@@ -67,6 +67,12 @@ def test_BVH():
         print("node split - success")
     else:
         print("node split - failure")
+
+    inner_nodes, leaf_nodes = head.to_list()
+    if inner_nodes[0] == head and leaf_nodes[0] == head.left_child and leaf_nodes[1] == head.right_child:
+        print("to list - success")
+    else:
+        print("to list - failure")
     
     left.aabb.y_max = 2.1
     left.aabb.y_min = 0.1
@@ -78,7 +84,7 @@ def test_BVH():
     else:
         print("Getting external primitives - failure")
     
-test_BVH()
+#test_BVH()
 
 
 
@@ -226,7 +232,12 @@ while len(nodes_to_split) != 0:
     level += 1
 
 with bench('Determine external primitives laying inside node'):
-    test = get_external_primitives_laying_inside_node(head_node.left_child.right_child)
+    external = get_external_primitives_laying_inside_node(head_node.left_child.right_child)
+with bench('Converting BVH to list'):
+    inner_nodes, leaf_nodes = head_node.to_list()
+with bench('Calculating EPO'):
+    epo = EPO(head_node)
+print(f'{epo}')
 isdf = 4
     
     
