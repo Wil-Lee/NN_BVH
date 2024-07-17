@@ -18,7 +18,10 @@ def surface_area(primitives: list[Primitive3]):
 
 
 def get_external_primitives_laying_inside_node(node: BVHNode) -> list[Primitive3]:
-    """ Returns a list of primitives which lay inside the nodes bounding box but are not part of the node or its children. """
+    """ 
+    Returns a list of primitives which lay inside the nodes bounding box but are not part of the node or its children.
+    Corresponds to (S\Q(n) ∩ n) of the EPO paper.
+    """
     if (node.parent is None):
         return []
     parent: BVHNode = node.parent
@@ -45,7 +48,7 @@ def get_external_primitives_laying_inside_node(node: BVHNode) -> list[Primitive3
 
     result: list[Primitive3] = []
 
-    # explore overlapping nodes with dfs until leaf is hit - code is reachable - TODO: add parallelization 
+    # explore overlapping nodes with dfs until leaf is hit - code is reachable
     while len(nodes_to_check):
         current_node = nodes_to_check.pop()
         while not current_node.is_leaf:
@@ -87,3 +90,21 @@ def get_external_primitives_laying_inside_node(node: BVHNode) -> list[Primitive3
                 result.append(prim)
     
     return result      
+
+def EPO(head_node: BVHNode):
+    inner_nodes, leaf_nodes = head_node.to_list()
+    inner_sum: float = 0
+    leaf_sum: float = 0
+
+    for inner in inner_nodes:
+        inner_sum += surface_area(get_external_primitives_laying_inside_node(inner))
+    # computation cost for inner nodes
+    inner_sum *= 1.2
+
+    for leaf in leaf_nodes:
+        leaf_sum += surface_area(get_external_primitives_laying_inside_node(leaf))
+
+    total_sum = inner_sum + leaf_sum
+    total_surface_area = surface_area(head_node.primitives)
+
+    return total_sum / total_surface_area
