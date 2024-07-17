@@ -73,7 +73,7 @@ def get_external_primitives_laying_inside_node(node: BVHNode) -> list[Primitive3
             continue
         
         for prim in current_node.primitives:
-            # checks if at least one node of a primitive lay inside the argument node's AABB
+            # checks if at least one node of a primitive lays inside the argument node's AABB
             if (
                 (node.aabb.x_max >= prim[0][0] >= node.aabb.x_min and
                  node.aabb.y_max >= prim[0][1] >= node.aabb.y_min and
