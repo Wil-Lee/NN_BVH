@@ -165,7 +165,7 @@ mesh = pv.PolyData(points, faces)
 
 
 level = 0
-show_current_split_level = False
+show_current_split_level = 0
 while len(nodes_to_split) != 0:
     
     new_nodes = []
@@ -235,9 +235,14 @@ with bench('Determine external primitives laying inside node'):
     external = get_external_primitives_laying_inside_node(head_node.left_child.right_child)
 with bench('Converting BVH to list'):
     inner_nodes, leaf_nodes = head_node.to_list()
-with bench('Calculating EPO'):
-    epo = EPO(head_node)
-print(f'{epo}')
+if 0:
+    with bench('Calculating EPO'):
+        epo = EPO(head_node)
+        print(f'{epo}')
+with bench('Calculating SAH'):
+    sah = SAH(head_node)
+    print(f'{sah}')
+
 isdf = 4
     
     

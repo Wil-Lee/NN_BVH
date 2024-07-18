@@ -89,7 +89,14 @@ def get_external_primitives_laying_inside_node(node: BVHNode) -> list[Primitive3
             ):
                 result.append(prim)
     
-    return result      
+    return result
+
+
+C_inn = 1.2
+"""Computation cost for inner nodes."""
+
+C_tri = 1.0
+"""Computation cost for leaf nodes."""
 
 def EPO(head_node: BVHNode):
     inner_nodes, leaf_nodes = head_node.to_list()
@@ -98,13 +105,43 @@ def EPO(head_node: BVHNode):
 
     for inner in inner_nodes:
         inner_sum += surface_area(get_external_primitives_laying_inside_node(inner))
-    # computation cost for inner nodes
-    inner_sum *= 1.2
+    inner_sum *= C_inn
 
     for leaf in leaf_nodes:
         leaf_sum += surface_area(get_external_primitives_laying_inside_node(leaf))
+    leaf_sum *= C_tri
 
     total_sum = inner_sum + leaf_sum
     total_surface_area = surface_area(head_node.primitives)
 
     return total_sum / total_surface_area
+
+
+def SAH(head_node: BVHNode):
+    inner_nodes, leaf_nodes = head_node.to_list()
+    inner_sum: float = 0
+    leaf_sum: float = 0
+
+    for inner in inner_nodes:
+        x_extent = inner.aabb.x_max - inner.aabb.x_min
+        y_extent = inner.aabb.y_max - inner.aabb.y_min
+        z_extent = inner.aabb.z_max - inner.aabb.z_min
+        # adds AABB surface area
+        inner_sum += 2 * (x_extent * y_extent + x_extent * z_extent + y_extent * z_extent)
+    inner_sum *= C_inn
+
+    for leaf in leaf_nodes:
+        x_extent = leaf.aabb.x_max - leaf.aabb.x_min
+        y_extent = leaf.aabb.y_max - leaf.aabb.y_min
+        z_extent = leaf.aabb.z_max - leaf.aabb.z_min
+        # adds AABB surface area * amount of primitives of the leaf node
+        leaf_sum += (2 * (x_extent * y_extent + x_extent * z_extent + y_extent * z_extent)) * len(leaf.primitives)
+    leaf_sum *= C_tri
+
+    total_sum = inner_sum + leaf_sum
+    x_extent = head_node.aabb.x_max - head_node.aabb.x_min
+    y_extent = head_node.aabb.y_max - head_node.aabb.y_min
+    z_extent = head_node.aabb.z_max - head_node.aabb.z_min
+    head_aabb_surface_area = 2 * (x_extent * y_extent + x_extent * z_extent + y_extent * z_extent)
+
+    return total_sum / head_aabb_surface_area
