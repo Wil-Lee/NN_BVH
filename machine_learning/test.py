@@ -164,6 +164,7 @@ faces = np.hstack([[3, 3*i, 3*i+1, 3*i+2] for i in range(n_faces)])
 mesh = pv.PolyData(points, faces)
 
 
+#######################################################################################
 level = 0
 show_current_split_level = 0
 while len(nodes_to_split) != 0:
@@ -192,23 +193,138 @@ while len(nodes_to_split) != 0:
             start_time = time.time()
             n.split(Axis.x, split_axis_pos)
             end_time = time.time()
+
+            # try other splits
+            if len(n.left_child.primitives) == 0 or len(n.right_child.primitives) == 0:
+                offset_x = max_x_extent / 2
+                offset_y = max_y_extent
+                offset_z = max_z_extent
+                
+                for i in range(1,6):
+                    offset_x *= 0.5
+                    split_axis_pos = n.aabb.x_min + offset_x
+                    n.split(Axis.x, split_axis_pos)
+                    if len(n.left_child.primitives) > 0 and len(n.right_child.primitives) > 0:
+                        break
+                    split_axis_pos = n.aabb.x_max - offset_x 
+                    n.split(Axis.x, split_axis_pos)
+                    if len(n.left_child.primitives) > 0 and len(n.right_child.primitives) > 0:
+                        break
+
+                    offset_y *= 0.5
+                    split_axis_pos = n.aabb.y_min + offset_y
+                    n.split(Axis.y, split_axis_pos)
+                    if len(n.left_child.primitives) > 0 and len(n.right_child.primitives) > 0:
+                        break
+                    split_axis_pos = n.aabb.y_max - offset_y 
+                    n.split(Axis.y, split_axis_pos)
+                    if len(n.left_child.primitives) > 0 and len(n.right_child.primitives) > 0:
+                        break
+
+                    offset_z *= 0.5
+                    split_axis_pos = n.aabb.z_min + offset_z
+                    n.split(Axis.z, split_axis_pos)
+                    if len(n.left_child.primitives) > 0 and len(n.right_child.primitives) > 0:
+                        break
+                    split_axis_pos = n.aabb.z_max - offset_z 
+                    n.split(Axis.z, split_axis_pos)
+                    if len(n.left_child.primitives) > 0 and len(n.right_child.primitives) > 0:
+                        break        
+
         elif max_y_extent >= max_z_extent:
             split_axis_pos = n.aabb.y_min + (max_y_extent / 2)
             start_time = time.time()
             n.split(Axis.y, split_axis_pos)
             end_time = time.time()
+
+            # try other splits
+            if len(n.left_child.primitives) == 0 or len(n.right_child.primitives) == 0:
+                offset_x = max_x_extent
+                offset_y = max_y_extent / 2
+                offset_z = max_z_extent
+
+                for i in range(1,6):
+                    offset_y *= 0.5
+                    split_axis_pos = n.aabb.y_min + offset_y
+                    n.split(Axis.y, split_axis_pos)
+                    if len(n.left_child.primitives) > 0 and len(n.right_child.primitives) > 0:
+                        break
+                    split_axis_pos = n.aabb.y_max - offset_y 
+                    n.split(Axis.y, split_axis_pos)
+                    if len(n.left_child.primitives) > 0 and len(n.right_child.primitives) > 0:
+                        break
+
+                    offset_z *= 0.5
+                    split_axis_pos = n.aabb.z_min + offset_z
+                    n.split(Axis.z, split_axis_pos)
+                    if len(n.left_child.primitives) > 0 and len(n.right_child.primitives) > 0:
+                        break
+                    split_axis_pos = n.aabb.z_max - offset_z 
+                    n.split(Axis.z, split_axis_pos)
+                    if len(n.left_child.primitives) > 0 and len(n.right_child.primitives) > 0:
+                        break
+
+                    offset_x *= 0.5
+                    split_axis_pos = n.aabb.x_min + offset_x
+                    n.split(Axis.x, split_axis_pos)
+                    if len(n.left_child.primitives) > 0 and len(n.right_child.primitives) > 0:
+                        break
+                    split_axis_pos = n.aabb.x_max - offset_x 
+                    n.split(Axis.x, split_axis_pos)
+                    if len(n.left_child.primitives) > 0 and len(n.right_child.primitives) > 0:
+                        break
+
         else:
             split_axis_pos = n.aabb.z_min + (max_z_extent / 2) 
             start_time = time.time()
             n.split(Axis.z, split_axis_pos)
             end_time = time.time()
+
+            # try other splits
+            if len(n.left_child.primitives) == 0 or len(n.right_child.primitives) == 0:
+                offset_x = max_x_extent
+                offset_y = max_y_extent
+                offset_z = max_z_extent / 2
+
+                for i in range(1,6):
+                    offset_z *= 0.5
+                    split_axis_pos = n.aabb.z_min + offset_z
+                    n.split(Axis.z, split_axis_pos)
+                    if len(n.left_child.primitives) > 0 and len(n.right_child.primitives) > 0:
+                        break
+                    split_axis_pos = n.aabb.z_max - offset_z 
+                    n.split(Axis.z, split_axis_pos)
+                    if len(n.left_child.primitives) > 0 and len(n.right_child.primitives) > 0:
+                        break
+
+                    offset_x *= 0.5
+                    split_axis_pos = n.aabb.x_min + offset_x
+                    n.split(Axis.x, split_axis_pos)
+                    if len(n.left_child.primitives) > 0 and len(n.right_child.primitives) > 0:
+                        break
+                    split_axis_pos = n.aabb.x_max - offset_x 
+                    n.split(Axis.x, split_axis_pos)
+                    if len(n.left_child.primitives) > 0 and len(n.right_child.primitives) > 0:
+                        break
+
+                    offset_y *= 0.5
+                    split_axis_pos = n.aabb.y_min + offset_y
+                    n.split(Axis.y, split_axis_pos)
+                    if len(n.left_child.primitives) > 0 and len(n.right_child.primitives) > 0:
+                        break
+                    split_axis_pos = n.aabb.y_max - offset_y 
+                    n.split(Axis.y, split_axis_pos)
+                    if len(n.left_child.primitives) > 0 and len(n.right_child.primitives) > 0:
+                        break
         
         total_time += end_time - start_time
+        
         
         if len(n.left_child.primitives) == 0 or len(n.right_child.primitives) == 0:
             n.left_child = None
             n.right_child = None
             n.is_leaf = True
+            
         else: 
             if __debug__:
                 n.left_child.layer = n.layer + 1
@@ -230,19 +346,33 @@ while len(nodes_to_split) != 0:
         
     nodes_to_split = new_nodes
     level += 1
+##################################################################################################
+
 
 with bench('Determine external primitives laying inside node'):
     external = get_external_primitives_laying_inside_node(head_node.left_child.right_child)
 with bench('Converting BVH to list'):
     inner_nodes, leaf_nodes = head_node.to_list()
+
+if 0:
+    plotter = pv.Plotter()
+    plotter.add_mesh(mesh, color='lightblue', show_edges=True)
+    for a, node in enumerate(leaf_nodes):
+        random_color = [np.random.uniform(0,1), np.random.uniform(0,1), np.random.uniform(0,1)]
+        draw_bounding_box(node.aabb, plotter, random_color)
+        print(f'{a}')
+    plotter.show()
+    plotter.close()
+    plotter.clear()
+
 if 0:
     with bench('Calculating EPO'):
         epo = EPO(head_node)
         print(f'{epo}')
+        
 with bench('Calculating SAH'):
     sah = SAH(head_node)
     print(f'{sah}')
 
 isdf = 4
-    
     
