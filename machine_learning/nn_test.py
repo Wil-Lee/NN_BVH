@@ -121,7 +121,7 @@ batch_size = 1
 data_size = 1000000
 loader = DataLoaderFromMeshes(data_size, batch_size, p_mesh, ab)
 
-if 0:
+if 1:
     plotter = pv.Plotter()
     draw_bounding_box(ab, plotter)
     points = np.array([vertex for primitive in primitives for vertex in primitive])
@@ -166,7 +166,7 @@ mesh = pv.PolyData(points, faces)
 
 #######################################################################################
 level = 0
-show_current_split_level = 0
+show_current_split_level = 1
 while len(nodes_to_split) != 0:
     
     new_nodes = []
@@ -375,4 +375,5 @@ with bench('Calculating SAH'):
     print(f'{sah}')
 
 isdf = 4
-    
+
+# CSVLogger from keras Callback to save trainings progress in CSV file 

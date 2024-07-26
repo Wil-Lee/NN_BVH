@@ -11,3 +11,6 @@ src/ext/*
 .vs/*
 .vscode/*
 machine_learning/__pycache__
+bedroom_LowPoly.pbrt
+bedroom.obj
+bedroomNoFloor.obj
