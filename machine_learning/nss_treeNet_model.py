@@ -18,7 +18,7 @@ class neural_kdtree :
         self.mModelName = model_name
         self.mName = config['name'] + '_' + self.mModelName
         self.mWeightFile = None
-        self.mRootFolder = os.path.join(os.getcwd(), 'metadata')
+        self.mRootFolder = os.path.join(os.getcwd(), 'machine_learning', 'metadata')
         self.checkpoint_window = config['checkpoint_window']
         self.mModel = None
         self.mRootFolder = os.path.join(self.mRootFolder, self.mName)

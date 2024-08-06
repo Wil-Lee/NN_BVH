@@ -259,7 +259,7 @@ class spatialSplit_Model(keras.Model) :
 
                 with tf.GradientTape() as tape :
                     pred_lthetas, _, _ = offset_encoder([point_clouds, node.bounds])
-
+               
                 loss_over_encoder = tape.gradient(pred_lthetas,
                     offset_encoder.trainable_weights,
                     output_gradients=upstream_grad_node_i)

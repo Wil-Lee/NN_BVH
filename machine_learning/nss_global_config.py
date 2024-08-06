@@ -4,14 +4,14 @@ import nss_tree_modules
 import nss_loss
 import nss_kd_tree
 
-TREE_DATASET_DIR = os.path.join(os.getcwd(), 'datasets')
+TREE_DATASET_DIR = os.path.join(os.getcwd(), 'machine_learning', 'datasets')
 
 # adjustable hyperparameters
 pc_size = 2048
-lvls =3
+lvls = 4
 epochs = 1
 capacity = 128
-batch_size = 64
+batch_size = 32
 
 i_isect = 1.0
 t_isect = 1.2

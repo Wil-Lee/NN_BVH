@@ -14,3 +14,5 @@ machine_learning/__pycache__
 bedroom_LowPoly.pbrt
 bedroom.obj
 bedroomNoFloor.obj
+machine_learning/datasets
+machine_learning/metadata

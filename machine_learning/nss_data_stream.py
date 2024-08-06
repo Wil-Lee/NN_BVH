@@ -22,8 +22,8 @@ class pointcloud_stream :
 
         # iterate over all point cloud files
         for df_file in self.df_files.iterrows() :
-            name = df_file[1]['samples']
-
+            name: str = df_file[1]['samples']
+            name = name.replace('\\', os.path.sep)
             # loads the point cloud from a .npz file and saves it in the pc numpy array of points (x,y,z)
             with np.load(os.path.join(self.pc_rootfolder, name) + '.npz', allow_pickle=True) as f :
                 pc = f['a']

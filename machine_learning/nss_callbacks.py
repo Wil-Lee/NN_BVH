@@ -21,7 +21,7 @@ class recur_trainLog(keras.callbacks.Callback) :
         self.pConfig = config
         self.treeLevels = config['tree_levels']
         self.numPlanes, self.numNodes = nss_common.num_splits_nodes(self.treeLevels)
-        self.dir = os.path.join(os.getcwd(), 'plots', pName)
+        self.dir = os.path.join(os.getcwd(),'machine_learning', 'plots', pName)
         self.checkpoint_dir = os.path.join(self.dir, pName + '_c')
         self.name = pName
         self.inference_model = pInferenceModel
