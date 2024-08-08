@@ -127,7 +127,7 @@ def parse_obj_file_with_primitives(file_path: str):
     return primitives
 """
 
-def parse_obj_file_with_meshes(file_path: str):
+def parse_obj_file_with_meshes(file_path: str) -> Mesh3List:
     """ Parses the provided file into a set of meshes. """
     mesh_list = Mesh3List()
     
@@ -172,8 +172,11 @@ def parse_obj_file_with_meshes(file_path: str):
     return mesh_list
 
 
-def scale_scene(primitives: list[Primitive3], lower_limit: int = 0, upper_limit: int = 1):
-    """ Scales the largest dimension of the scene down to [lower_limit, upper_limit] and all other dimension accordingly. """
+def scale_scene(primitives: list[Primitive3], shift: int = 0):
+    """ 
+    Scales the largest dimension of the scene down to [0, 1] and all other dimension accordingly.
+    Afterwards shifts the scene by {shift} at all axes. 
+    """
 
     bounds = get_AABB_from_primitives(primitives)
     
@@ -208,13 +211,22 @@ def scale_scene(primitives: list[Primitive3], lower_limit: int = 0, upper_limit:
     
     for p in primitives:
         p[0][0] /= max_extent
+        p[0][0] += shift
         p[0][1] /= max_extent
+        p[0][1] += shift
         p[0][2] /= max_extent
+        p[0][2] += shift
         p[1][0] /= max_extent
+        p[1][0] += shift
         p[1][1] /= max_extent
+        p[1][1] += shift
         p[1][2] /= max_extent
+        p[1][2] += shift
         p[2][0] /= max_extent
+        p[2][0] += shift
         p[2][1] /= max_extent
+        p[2][1] += shift
         p[2][2] /= max_extent
+        p[2][2] += shift
 
     return primitives
