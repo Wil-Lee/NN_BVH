@@ -16,6 +16,17 @@ def surface_area(primitives: list[Primitive3]):
     
     return surface_area
 
+def surface_area_primitive(prim: Primitive3):
+    """ Returns the area of the primitive. """
+
+    AB = prim[1] - prim[0]
+    AC = prim[2] - prim[0]
+    u = np.cross(AB, AC)
+    surface_area: float = np.linalg.norm(u)
+    surface_area *= 0.5
+    
+    return surface_area
+
 
 def get_external_primitives_laying_inside_node(node: BVHNode) -> list[Primitive3]:
     """ 
