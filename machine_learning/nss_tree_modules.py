@@ -71,6 +71,7 @@ class neuralNode_splitter(tf.Module) :
             (left_bbox_X, right_bbox_X, left_bbox_Y, right_bbox_Y, left_bbox_Z, right_bbox_Z)
 
 class sah_eval(tf.Module) :
+    """ Returns the probability of a ray that intersects the parent node also intersects the current node. """
     def __init__(self) :
         super(sah_eval, self).__init__()
 
@@ -123,6 +124,7 @@ class gr_q_eval(tf.Module) :
         return N * self.t_cost
 
 class q_eval(tf.Module) :
+    """ Returns the cost of traversal and intersection tests of the left and right child node. C(L), C(R)"""
     def __init__(self, t, beta) :
         super(q_eval, self).__init__()
         self.t_cost = t
@@ -138,6 +140,7 @@ class q_eval(tf.Module) :
         return nL * self.t_cost, (N - nL) * self.t_cost
 
 class p_eval(tf.Module) :
+    """ Just returns the traversal cost coefficient. """
     def __init__(self, t) :
         super(p_eval, self).__init__()
         self.t_cost = t
