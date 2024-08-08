@@ -141,7 +141,6 @@ class scene:
                 sample_idx += 1
             self.primitive_cloud.append(prim_cloud_mesh)
         
-        #
         self.batch_primitive_clouds: list[np.ndarray] = []
         for _ in range(0, batch_size):
             self.batch_primitive_clouds.append(np.array(self.primitive_cloud.primitives))
