@@ -23,11 +23,12 @@ def train_vh() :
 
 def train_EPO():
     net = nss_treeNet_model.neural_kdtree(nss_global_config.vh_config, 'EPO_tree')
-    net.train()
+    net.train_EPO()
 
     
 def main():
-    train_sah()
+    train_EPO()
+    #train_sah()
     #train_vh()
 
 if __name__ == "__main__":

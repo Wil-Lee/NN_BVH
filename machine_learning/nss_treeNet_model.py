@@ -29,6 +29,87 @@ class neural_kdtree :
         self.mModel = nss_neural_spatial_split.spatialSplit_Model(pConfig=config)
         self.mModel.compile()
 
+
+####################################################### EDIT ##################################################################################
+
+    def train_EPO(self, pIsCheckpoint=False) :
+        
+        test_generator: nss_data_stream.primitive_cloud_generator = nss_data_stream.primitive_cloud_generator(self.config) 
+
+        for i in range(31):
+            test = test_generator.get_next_batch()
+
+        test_ds = nss_data_stream.pointcloud_stream(self.config, self.config['test_dir'], self.config['test_csv'], self.mBatchSize)
+        train_ds = nss_data_stream.pointcloud_stream(self.config, self.config['train_dir'], self.config['train_csv'], self.mBatchSize)
+        valid_ds = None
+    
+        self.train_dataset = train_ds.init_dataset(True, True)
+        test_ds.init_dataset(False, True)
+
+        if self.config['valid_dir'] is not None :
+            valid_ds = nss_data_stream.pointcloud_stream(self.config, self.config['valid_dir'], self.config['valid_csv'], self.mBatchSize)
+            valid_ds.init_dataset(False, True)
+
+        train_cb = nss_callbacks.recur_trainLog(self.config,
+            train_ds, test_ds, valid_ds,
+            self.mModel, self.mName, pIsCheckpoint)
+
+        train_cb.on_train_begin()
+        numEpochs = self.config['epochs']
+        
+        for epoch in range(numEpochs) :
+            global_loss_log = {}
+
+            # dataset is a container that holds elements: a scene name vector and a corresponding point cloud vector
+            # a point cloud is an array of points
+            # a point is an array of three np.float32 values (x,y,z) (probably)
+            for step, (names, point_clouds) in enumerate(self.train_dataset) : # insert here own point clouds 
+                batch = point_clouds
+
+                print('Epoch {0}/{1} - batch {2}/{3} - '.format(epoch + 1, numEpochs,
+                    step + 1, len(self.train_dataset),), end='', flush=True)
+
+                t0 = time.time()
+
+                # batch_loss is a dictionary of numpy arrays representing different losses
+                #{'loss' : loss,  'tree_loss' : tree_loss,  'pen_loss' : pen_loss,  'mae' : mae,  'out_of_bounds_splits' : num_out_of_bounds_thetas }
+                batch_loss, batch_log = self.mModel.train_step(epoch + 1, step, batch) # adapt train step here
+
+                for key, value in batch_loss.items() :
+                    if key in global_loss_log :
+                        global_loss_log[key] += batch_loss[key]
+                    else :
+                        global_loss_log[key] = batch_loss[key]
+
+                for key, value in batch_log.items() :
+                    if key in global_loss_log :
+                        global_loss_log[key] += batch_log[key]
+                    else :
+                        global_loss_log[key] = batch_log[key]
+
+                print('elapsed time: {0:.2f} - '.format(time.time() - t0), end='', flush=False)
+                for key, value in batch_loss.items() :
+                    print('{0}: {1:.4f} - '.format(key, value), end='', flush=False)
+                print('', flush=True)
+
+            for key, value in global_loss_log.items() :
+                global_loss_log[key] /= len(self.train_dataset)
+
+            if (epoch + 1) % self.checkpoint_window == 0 :
+                print('Exporting checkpoint')
+                self.__save_model()
+
+            print('Evaluating test set... ', end='', flush=True)
+            t0 = time.time()
+            train_cb.on_epoch_end(epoch + 1, global_loss_log)
+            print('elapsed time {0}'.format(time.time() - t0))
+
+        train_cb.on_train_end()
+        self.__save_model()
+
+###############################################################################################################################################
+
+
     def train(self, pIsCheckpoint=False) :
         test_ds = nss_data_stream.pointcloud_stream(self.config, self.config['test_dir'], self.config['test_csv'], self.mBatchSize)
         train_ds = nss_data_stream.pointcloud_stream(self.config, self.config['train_dir'], self.config['train_csv'], self.mBatchSize)

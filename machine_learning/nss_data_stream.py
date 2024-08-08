@@ -1,5 +1,11 @@
 # credits: https://github.com/cgaueb/nss
+import heapq
 import os
+import nn_AABB
+import nn_loss
+import nn_mesh_list
+import nn_parser
+import nn_types
 import nss_common
 import numpy as np
 import pandas as pd
@@ -63,3 +69,155 @@ class pointcloud_stream :
         self.dataset = self.dataset.prefetch(buffer_size=tf.data.AUTOTUNE)
 
         return self.dataset
+    
+####################################################### EDIT ##################################################################################
+
+class scene:
+    def __init__(self, _meshes: nn_mesh_list.Mesh3List, batch_size, primitive_cloud_size: float):
+        self.meshes = _meshes
+        self.bounds = nn_AABB.get_AABB_from_primitives(self.meshes.primitives)
+        self.primitive_cloud: nn_mesh_list.Mesh3List = nn_mesh_list.Mesh3List()
+
+        # ugly code to avoid branching in get_next_transformed_batch()
+        self.bounds_list: list[float] = [] 
+        self.bounds_list.append(self.bounds.x_max)
+        self.bounds_list.append(self.bounds.y_max)
+        self.bounds_list.append(self.bounds.z_max)
+        self.bounds_list.append(self.bounds.x_min)
+        self.bounds_list.append(self.bounds.y_min)
+        self.bounds_list.append(self.bounds.z_min)
+
+        non_moveable_mesh_range = self.meshes.mesh_indices[0]
+        self.meshes.mesh_indices.pop(0)
+
+        self.batch_primitives_AABB_lists = [[[] for _ in range(len(self.meshes.mesh_indices))] \
+                                             for _ in range(batch_size)]
+        for mesh_index, mesh_interval in enumerate(self.meshes.mesh_indices):
+            mesh = self.meshes.primitives[mesh_interval.low : mesh_interval.up]
+            aabb = nn_AABB.get_AABB_from_primitives(mesh)
+            for i in range(0, batch_size):
+                self.batch_primitives_AABB_lists[i][mesh_index].append(aabb.x_max)
+                self.batch_primitives_AABB_lists[i][mesh_index].append(aabb.y_max)
+                self.batch_primitives_AABB_lists[i][mesh_index].append(aabb.z_max)
+                self.batch_primitives_AABB_lists[i][mesh_index].append(aabb.x_min)
+                self.batch_primitives_AABB_lists[i][mesh_index].append(aabb.y_min)
+                self.batch_primitives_AABB_lists[i][mesh_index].append(aabb.z_min)
+        
+        # take samples
+        # special case for non moveable objects
+        samples_non_moveable = 24 # 6 Walls * 2 Polygons per wall * 2 both sides of wall
+        if samples_non_moveable < non_moveable_mesh_range.up:
+            prims_with_size = []
+            for i in range(non_moveable_mesh_range.up):
+                prims_with_size.append({'index': i, 'size': nn_loss.surface_area_primitive(self.meshes.primitives[i])})
+            largest_prims_with_size = heapq.nlargest(samples_non_moveable, prims_with_size, key=lambda x : x['size'])
+            largest_prims_indices = [i['index'] for i in largest_prims_with_size]
+        else: 
+            largest_prims_indices = list(range(non_moveable_mesh_range.up))
+        for prim_idx in largest_prims_indices:
+            self.primitive_cloud.primitives.append(self.meshes.primitives[prim_idx])
+        
+        # moveable objects
+        remaining_sample_size: float = primitive_cloud_size - len(self.primitive_cloud.primitives)
+        remaining_primitives_size: float = float(len(self.meshes.primitives)) - non_moveable_mesh_range.up
+        samples_per_prim: float = min(remaining_sample_size / remaining_primitives_size, 1)
+        
+        step = remaining_primitives_size / remaining_sample_size
+        sample_indices = [(non_moveable_mesh_range.up + round(i * step)) for i in range(remaining_sample_size)]
+        
+        sample_idx = 0
+        removed_meshes = 0
+        for mesh_index, mesh_interval in enumerate(self.meshes.mesh_indices):
+            if sample_indices[sample_idx] < mesh_interval.low or sample_indices[sample_idx] >= mesh_interval.up:
+                # remove AABB of the mesh from every batch entry
+                for prim_AABB_list in self.batch_primitives_AABB_lists:
+                    prim_AABB_list.pop(mesh_index - removed_meshes)
+                removed_meshes += 1
+                continue
+            prim_cloud_mesh: nn_types.Mesh3 = []
+            while sample_idx < len(sample_indices) \
+                and mesh_interval.low <= sample_indices[sample_idx] and sample_indices[sample_idx] < mesh_interval.up:
+                prim_cloud_mesh.append(self.meshes.primitives[sample_indices[sample_idx]])
+                sample_idx += 1
+            self.primitive_cloud.append(prim_cloud_mesh)
+        
+        #
+        self.batch_primitive_clouds: list[np.ndarray] = []
+        for _ in range(0, batch_size):
+            self.batch_primitive_clouds.append(np.array(self.primitive_cloud.primitives))
+
+
+    # TODO: In case of parallelization -> each thread needs its own random number generator
+    np.random.seed(83242)
+    
+    def get_next_tranformed_batch(self) -> list[np.ndarray]:
+        """ Generates a batch of transformations of the current scene and returns it. """
+        meshes_len = len(self.primitive_cloud.mesh_indices)
+        quart_len = int(np.floor((meshes_len) / 4))
+        # shift to access the minimum axis bounds
+        min = 3
+
+        # TODO: Add parallelization:
+        for batch_idx, primitives in enumerate(self.batch_primitive_clouds):
+
+            transform_size = np.random.randint(quart_len, quart_len * 3 + 1)
+            # indices of the meshes that shall be transformed
+            transform_indices = np.random.choice(meshes_len, size=transform_size, replace=False)
+            for m in transform_indices:
+                interval = self.primitive_cloud.mesh_indices[m]
+                # choose random axis: 0=x, 1=y, 2=z
+                axis = np.random.randint(0,3)
+
+                mesh_aabb_extend = self.batch_primitives_AABB_lists[batch_idx][m][axis] \
+                    - self.batch_primitives_AABB_lists[batch_idx][m][min + axis]
+                halve_extend = mesh_aabb_extend / 2
+                # guaranties that the new position is in bound
+                lower_bound = self.bounds_list[min + axis] + halve_extend
+                upper_bound = self.bounds_list[axis] - halve_extend
+                # in regard to the middle point of the aabb
+                new_pos = np.random.uniform(lower_bound, upper_bound)
+                current_pos = self.batch_primitives_AABB_lists[batch_idx][m][axis] - halve_extend
+                             
+                translation = new_pos - current_pos
+
+                for i in range(interval.low, interval.up):
+                    primitives[i][0][axis] += translation
+                    primitives[i][1][axis] += translation
+                    primitives[i][2][axis] += translation
+                self.batch_primitives_AABB_lists[batch_idx][m][axis] += translation
+                self.batch_primitives_AABB_lists[batch_idx][m][min + axis] += translation
+        
+        return self.batch_primitive_clouds
+
+import pyvista as pv
+
+class primitive_cloud_generator:
+    def __init__(self, config):
+        self.batch_size = config['batch_size']
+        self.scene_folder = config['scenes_dir']
+        self.batch_sets_per_scene = config['batch_sets']
+        self.prim_cloud_size = config['point_cloud_size']
+        self.scene_index = 0
+        self.scenes : list[scene] = []
+
+        # load scenes
+        for scene_file in os.listdir(self.scene_folder):
+            if not scene_file.endswith('.obj'):
+                continue
+            scene_meshes = nn_parser.parse_obj_file_with_meshes(os.path.join(self.scene_folder, scene_file))
+            nn_parser.scale_scene(scene_meshes.primitives, 1)
+
+            self.scenes.append(scene(scene_meshes, self.batch_size, self.prim_cloud_size))
+        
+        self.batch_limit = len(self.scenes) * self.batch_sets_per_scene
+
+    def get_next_batch(self):
+        if self.scene_index >= self.batch_limit:
+            return tf.constant([], dtype=tf.float32)
+        cur_scene: scene = self.scenes[self.scene_index // self.batch_sets_per_scene]
+        self.scene_index += 1
+        
+        transformed_scenes_batch = np.array(cur_scene.get_next_tranformed_batch()).reshape(self.batch_size, self.prim_cloud_size, 9)
+
+        return tf.convert_to_tensor(transformed_scenes_batch, dtype=tf.float32)
+

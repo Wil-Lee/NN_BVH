@@ -5,16 +5,20 @@ import nss_loss
 import nss_kd_tree
 
 TREE_DATASET_DIR = os.path.join(os.getcwd(), 'machine_learning', 'datasets')
+SCENES_DIR = os.path.join(os.getcwd(), 'machine_learning', 'obj_scenes')
 
 # adjustable hyperparameters
 pc_size = 2048
 lvls = 4
 epochs = 1
+batch_sets_per_scene = 30
 capacity = 128
 batch_size = 32
 
 i_isect = 1.0
+""" Corresponds to C_tri of EPO paper. """
 t_isect = 1.2
+""" Corresponds to C_inn of EPO paper. """
 t = 1.0
 learning_rate = 0.0001
 gamma = 1.0
@@ -44,7 +48,10 @@ init_config = {
     'train_unbalanced' : train_unbalanced,
     'checkpoint_window' : 15,
     'epochs' : epochs,
-    'batch_size' : batch_size, }
+    'batch_size' : batch_size, 
+    'scenes_dir' : SCENES_DIR,
+    'batch_sets' : batch_sets_per_scene
+    }
 
 def buildNetworkName(strat, lvls, pc_size, capacity) :
     return '{0}_kdtree_{1}lvl_{2}pc_{3}capacity'.format(
