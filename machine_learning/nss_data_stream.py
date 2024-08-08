@@ -10,6 +10,7 @@ import nss_common
 import numpy as np
 import pandas as pd
 import tensorflow as tf
+import warnings
 
 class pointcloud_stream :
     def __init__(self, pConfig, pPointCloudRootFolder, pCSV, pBatchSize) :
@@ -215,8 +216,9 @@ class primitive_cloud_generator:
             return tf.constant([], dtype=tf.float32)
         cur_scene: scene = self.scenes[self.scene_index // self.batch_sets_per_scene]
         self.scene_index += 1
-        
-        transformed_scenes_batch = np.array(cur_scene.get_next_tranformed_batch()).reshape(self.batch_size, self.prim_cloud_size, 9)
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", RuntimeWarning)
+            transformed_scenes_batch = np.array(cur_scene.get_next_tranformed_batch()).reshape(self.batch_size, self.prim_cloud_size, 9)
 
         return tf.convert_to_tensor(transformed_scenes_batch, dtype=tf.float32)
 
