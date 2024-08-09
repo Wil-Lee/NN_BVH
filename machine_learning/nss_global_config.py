@@ -52,7 +52,8 @@ init_config = {
     'batch_size' : batch_size, 
     'scenes_dir' : SCENES_DIR,
     'batch_sets' : batch_sets_per_scene,
-    'test_sets' : test_primitive_clouds_per_scene
+    'test_sets' : test_primitive_clouds_per_scene,
+    'EPO' : False
     }
 
 def buildNetworkName(strat, lvls, pc_size, capacity) :
@@ -61,6 +62,26 @@ def buildNetworkName(strat, lvls, pc_size, capacity) :
         str(lvls),
         str(pc_size),
         str(capacity),)
+
+epo_config = init_config.copy()
+
+epo_config['tree_strat'] = nss_kd_tree.strategy.SURFACE_HEURISTIC_GREEDY
+
+epo_config['name'] = buildNetworkName(
+    epo_config['tree_strat'], epo_config['tree_levels'],
+    epo_config['point_cloud_size'],
+    epo_config['dense_units_point_enc'])
+
+epo_config['EPO'] = True
+# TODO: config!
+
+epo_config['weight_fn'] = nss_tree_modules.sah_eval()
+epo_config['pooling_fn'] = nss_tree_modules.pool_treelet(t, 4 if init_config['train_unbalanced'] else 3,
+    nss_tree_modules.p_eval(t_isect),
+    nss_tree_modules.q_eval(i_isect, beta),
+    nss_tree_modules.gr_q_eval(i_isect),
+    nss_tree_modules.sah_eval(),
+    init_config['norm_factor'])
 
 sah_config = init_config.copy()
 

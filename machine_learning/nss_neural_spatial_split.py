@@ -34,9 +34,14 @@ class spatialSplit_Model(keras.Model) :
         self.loss_fn = self.config['loss_fn']
         self.penalty_loss_fn = self.config['penalty_fn']
 
-        for lvl_i in range(0, self.treeLevels - 1) :
-            encoder = nss_custom_layers.recursive_tree_level_encoder(lvl_i, **self.config)
-            self.offset_encoders += [encoder,]
+        if pConfig['EPO']:
+            for lvl_i in range(0, self.treeLevels - 1) :
+                encoder = nss_custom_layers.recursive_tree_level_encoder_EPO(lvl_i, **self.config)
+                self.offset_encoders += [encoder,]
+        else: 
+            for lvl_i in range(0, self.treeLevels - 1) :
+                encoder = nss_custom_layers.recursive_tree_level_encoder(lvl_i, **self.config)
+                self.offset_encoders += [encoder,]
 
     def call(self, inputs) :
         assert False
@@ -129,10 +134,26 @@ class spatialSplit_Model(keras.Model) :
                 tf.constant([0], dtype=tf.float32)]
 
         return flag
+    
 
     def set_initial_input(self, point_cloud, root_node) :
-        bmin = tf.reduce_min(point_cloud, axis=1)
-        bmax = tf.reduce_max(point_cloud, axis=1)
+        if self.config['EPO']:
+            x_coords = tf.gather(point_cloud, indices=[0, 3, 6], axis=2)
+            y_coords = tf.gather(point_cloud, indices=[1, 4, 7], axis=2)
+            z_coords = tf.gather(point_cloud, indices=[2, 5, 8], axis=2)
+            min_x = tf.reduce_min(tf.reduce_min(x_coords, axis=1), axis=1, keepdims=True)
+            min_y = tf.reduce_min(tf.reduce_min(y_coords, axis=1), axis=1, keepdims=True)
+            min_z = tf.reduce_min(tf.reduce_min(z_coords, axis=1), axis=1, keepdims=True)
+            max_x = tf.reduce_max(tf.reduce_max(x_coords, axis=2), axis=1, keepdims=True)
+            max_y = tf.reduce_max(tf.reduce_max(y_coords, axis=2), axis=1, keepdims=True)
+            max_z = tf.reduce_max(tf.reduce_max(z_coords, axis=2), axis=1, keepdims=True)
+            
+            bmin = tf.concat([min_x, min_y, min_z], axis=1)
+            bmax = tf.concat([max_x, max_y, max_z], axis=1)
+        else:
+            bmin = tf.reduce_min(point_cloud, axis=1)
+            bmax = tf.reduce_max(point_cloud, axis=1)
+
         root_bounds = tf.concat([bmin, bmax], axis=-1)
         root_node.bounds = root_bounds
         root_node.parent_bounds = root_bounds
