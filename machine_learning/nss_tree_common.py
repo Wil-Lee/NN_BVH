@@ -47,6 +47,51 @@ def build_mask_(point_cloud, bmin, bmax, lower_bound = 0.0, upper_bound = 1.0) :
 def build_mask(point_cloud, bounds, lower_bound = 0.0, upper_bound = 1.0) :
     return build_mask_(point_cloud, bounds[:, 0:3], bounds[:, 3:], lower_bound, upper_bound)
 
+####################################################### EDIT ##################################################################################
+
+#@tf.function
+def build_mask_EPO_(point_cloud, bmin, bmax, lower_bound = 0.0, upper_bound = 1.0):
+    x1, x2, x3 = point_cloud[..., 0], point_cloud[..., 3], point_cloud[..., 6]
+    y1, y2, y3 = point_cloud[..., 1], point_cloud[..., 4], point_cloud[..., 7]
+    z1, z2, z3 = point_cloud[..., 2], point_cloud[..., 5], point_cloud[..., 8]
+
+    x_bmin = bmin[..., 0:1]
+    y_bmin = bmin[..., 1:2]
+    z_bmin = bmin[..., 2:3]
+
+    x_bmax = bmax[..., 0:1]
+    y_bmax = bmax[..., 1:2]
+    z_bmax = bmax[..., 2:3]
+
+    mask_x = tf.where(tf.logical_and(
+        tf.logical_and(x1 >= x_bmin, x1 <= x_bmax),
+        tf.logical_and(x2 >= x_bmin, x2 <= x_bmax),
+        tf.logical_and(x3 >= x_bmin, x3 <= x_bmax)
+    ), upper_bound, lower_bound)
+
+    mask_y = tf.where(tf.logical_and(
+        tf.logical_and(y1 >= y_bmin, y1 <= y_bmax),
+        tf.logical_and(y2 >= y_bmin, y2 <= y_bmax),
+        tf.logical_and(y3 >= y_bmin, y3 <= y_bmax)
+    ), upper_bound, lower_bound)
+
+    mask_z = tf.where(tf.logical_and(
+        tf.logical_and(z1 >= z_bmin, z1 <= z_bmax),
+        tf.logical_and(z2 >= z_bmin, z2 <= z_bmax),
+        tf.logical_and(z3 >= z_bmin, z3 <= z_bmax)
+    ), upper_bound, lower_bound)
+
+    mask_x = tf.expand_dims(mask_x, axis=-1)
+    mask_y = tf.expand_dims(mask_y, axis=-1)  
+    mask_z = tf.expand_dims(mask_z, axis=-1)
+
+    return tf.math.multiply(tf.math.multiply(mask_x, mask_y), mask_z)
+
+#@tf.function
+def build_mask_EPO(point_cloud, bounds, lower_bound = 0.0, upper_bound = 1.0):
+    return build_mask_EPO_(point_cloud, bounds[:, 0:3], bounds[:, 3:], lower_bound, upper_bound)
+
+###############################################################################################################################################
 @tf.function
 def build_mask_1D(point_cloud, bmin, bmax) :
     return tf.where(tf.logical_and(
