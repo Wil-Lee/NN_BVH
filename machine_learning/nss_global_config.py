@@ -12,6 +12,7 @@ pc_size = 2048
 lvls = 4
 epochs = 1
 batch_sets_per_scene = 30
+test_primitive_clouds_per_scene = 64
 capacity = 128
 batch_size = 32
 
@@ -50,7 +51,8 @@ init_config = {
     'epochs' : epochs,
     'batch_size' : batch_size, 
     'scenes_dir' : SCENES_DIR,
-    'batch_sets' : batch_sets_per_scene
+    'batch_sets' : batch_sets_per_scene,
+    'test_sets' : test_primitive_clouds_per_scene
     }
 
 def buildNetworkName(strat, lvls, pc_size, capacity) :

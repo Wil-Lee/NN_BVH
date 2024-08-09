@@ -1,4 +1,5 @@
 # credits: https://github.com/cgaueb/nss
+import copy
 import heapq
 import os
 import nn_AABB
@@ -74,7 +75,11 @@ class pointcloud_stream :
 ####################################################### EDIT ##################################################################################
 
 class scene:
-    def __init__(self, _meshes: nn_mesh_list.Mesh3List, batch_size, primitive_cloud_size: float):
+    def __init__(self, _meshes: nn_mesh_list.Mesh3List, batch_size, primitive_cloud_size: float, rng_seed):
+        self.prim_cloud_size = primitive_cloud_size
+        self.batch_size = batch_size
+        self.rng_seed = rng_seed
+        self.rng = np.random.default_rng(self.rng_seed)
         self.meshes = _meshes
         self.bounds = nn_AABB.get_AABB_from_primitives(self.meshes.primitives)
         self.primitive_cloud: nn_mesh_list.Mesh3List = nn_mesh_list.Mesh3List()
@@ -92,11 +97,11 @@ class scene:
         self.meshes.mesh_indices.pop(0)
 
         self.batch_primitives_AABB_lists = [[[] for _ in range(len(self.meshes.mesh_indices))] \
-                                             for _ in range(batch_size)]
+                                             for _ in range( self.batch_size)]
         for mesh_index, mesh_interval in enumerate(self.meshes.mesh_indices):
             mesh = self.meshes.primitives[mesh_interval.low : mesh_interval.up]
             aabb = nn_AABB.get_AABB_from_primitives(mesh)
-            for i in range(0, batch_size):
+            for i in range(0,  self.batch_size):
                 self.batch_primitives_AABB_lists[i][mesh_index].append(aabb.x_max)
                 self.batch_primitives_AABB_lists[i][mesh_index].append(aabb.y_max)
                 self.batch_primitives_AABB_lists[i][mesh_index].append(aabb.z_max)
@@ -119,7 +124,7 @@ class scene:
             self.primitive_cloud.primitives.append(self.meshes.primitives[prim_idx])
         
         # moveable objects
-        remaining_sample_size: float = primitive_cloud_size - len(self.primitive_cloud.primitives)
+        remaining_sample_size: float = self.prim_cloud_size - len(self.primitive_cloud.primitives)
         remaining_primitives_size: float = float(len(self.meshes.primitives)) - non_moveable_mesh_range.up
         samples_per_prim: float = min(remaining_sample_size / remaining_primitives_size, 1)
         
@@ -143,13 +148,34 @@ class scene:
             self.primitive_cloud.append(prim_cloud_mesh)
         
         self.batch_primitive_clouds: list[np.ndarray] = []
-        for _ in range(0, batch_size):
+        for _ in range(0,  self.batch_size):
             self.batch_primitive_clouds.append(np.array(self.primitive_cloud.primitives))
 
 
-    # TODO: In case of parallelization -> each thread needs its own random number generator
-    np.random.seed(83242)
+    def get_test_dataset(self, dataset_size):
+        backup_batch_primitives_AABB_lists = copy.deepcopy(self.batch_primitives_AABB_lists)
+        backup_batch_primitive_clouds = copy.deepcopy(self.batch_primitive_clouds)
+
+        self.rng = np.random.default_rng(52535)
+        test_clouds = []
+        test_clouds.append(np.array(self.primitive_cloud.primitives))
+
+        while len(test_clouds) < dataset_size:
+            test_clouds.extend(self.get_next_tranformed_batch())
+
+        test_clouds = test_clouds[:dataset_size]
+
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", RuntimeWarning)
+            test_clouds_dataset = np.array(test_clouds).reshape(dataset_size, self.prim_cloud_size, 9)
+
+        self.batch_primitives_AABB_lists = backup_batch_primitives_AABB_lists
+        self.batch_primitive_clouds = backup_batch_primitive_clouds
+        self.rng = np.random.default_rng(self.rng_seed)
+
+        return tf.convert_to_tensor(test_clouds_dataset, dtype=tf.float32)
     
+
     def get_next_tranformed_batch(self) -> list[np.ndarray]:
         """ Generates a batch of transformations of the current scene and returns it. """
         meshes_len = len(self.primitive_cloud.mesh_indices)
@@ -157,16 +183,14 @@ class scene:
         # shift to access the minimum axis bounds
         min = 3
 
-        # TODO: Add parallelization:
         for batch_idx, primitives in enumerate(self.batch_primitive_clouds):
-
-            transform_size = np.random.randint(quart_len, quart_len * 3 + 1)
+            transform_size = self.rng.integers(quart_len, quart_len * 3 + 1)
             # indices of the meshes that shall be transformed
-            transform_indices = np.random.choice(meshes_len, size=transform_size, replace=False)
+            transform_indices = self.rng.choice(meshes_len, size=transform_size, replace=False)
             for m in transform_indices:
                 interval = self.primitive_cloud.mesh_indices[m]
                 # choose random axis: 0=x, 1=y, 2=z
-                axis = np.random.randint(0,3)
+                axis = self.rng.integers(0,3)
 
                 mesh_aabb_extend = self.batch_primitives_AABB_lists[batch_idx][m][axis] \
                     - self.batch_primitives_AABB_lists[batch_idx][m][min + axis]
@@ -175,7 +199,7 @@ class scene:
                 lower_bound = self.bounds_list[min + axis] + halve_extend
                 upper_bound = self.bounds_list[axis] - halve_extend
                 # in regard to the middle point of the aabb
-                new_pos = np.random.uniform(lower_bound, upper_bound)
+                new_pos = self.rng.uniform(lower_bound, upper_bound)
                 current_pos = self.batch_primitives_AABB_lists[batch_idx][m][axis] - halve_extend
                              
                 translation = new_pos - current_pos
@@ -189,7 +213,6 @@ class scene:
         
         return self.batch_primitive_clouds
 
-import pyvista as pv
 
 class primitive_cloud_generator:
     def __init__(self, config):
@@ -199,17 +222,22 @@ class primitive_cloud_generator:
         self.prim_cloud_size = config['point_cloud_size']
         self.scene_index = 0
         self.scenes : list[scene] = []
+        self.test_dataset = []
 
-        # load scenes
+        print("Loading scenes and test dataset...")
         for scene_file in os.listdir(self.scene_folder):
             if not scene_file.endswith('.obj'):
                 continue
             scene_meshes = nn_parser.parse_obj_file_with_meshes(os.path.join(self.scene_folder, scene_file))
             nn_parser.scale_scene(scene_meshes.primitives, 1)
 
-            self.scenes.append(scene(scene_meshes, self.batch_size, self.prim_cloud_size))
-        
+            sc = scene(scene_meshes, self.batch_size, self.prim_cloud_size, 83242)
+            self.scenes.append(sc)
+            self.test_dataset.extend(sc.get_test_dataset(config['test_sets']))
+        self.test_dataset = tf.convert_to_tensor(self.test_dataset, dtype=tf.float32)
+        print("... done.")
         self.batch_limit = len(self.scenes) * self.batch_sets_per_scene
+
 
     def get_next_batch(self):
         if self.scene_index >= self.batch_limit:
@@ -221,4 +249,3 @@ class primitive_cloud_generator:
             transformed_scenes_batch = np.array(cur_scene.get_next_tranformed_batch()).reshape(self.batch_size, self.prim_cloud_size, 9)
 
         return tf.convert_to_tensor(transformed_scenes_batch, dtype=tf.float32)
-

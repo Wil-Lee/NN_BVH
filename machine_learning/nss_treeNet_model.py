@@ -34,25 +34,10 @@ class neural_kdtree :
 
     def train_EPO(self, pIsCheckpoint=False) :
         
-        test_generator: nss_data_stream.primitive_cloud_generator = nss_data_stream.primitive_cloud_generator(self.config) 
+        prim_cloud_gen: nss_data_stream.primitive_cloud_generator = nss_data_stream.primitive_cloud_generator(self.config) 
+        test_ds = prim_cloud_gen.test_dataset
 
-        for i in range(31):
-            test = test_generator.get_next_batch()
-
-        test_ds = nss_data_stream.pointcloud_stream(self.config, self.config['test_dir'], self.config['test_csv'], self.mBatchSize)
-        train_ds = nss_data_stream.pointcloud_stream(self.config, self.config['train_dir'], self.config['train_csv'], self.mBatchSize)
-        valid_ds = None
-    
-        self.train_dataset = train_ds.init_dataset(True, True)
-        test_ds.init_dataset(False, True)
-
-        if self.config['valid_dir'] is not None :
-            valid_ds = nss_data_stream.pointcloud_stream(self.config, self.config['valid_dir'], self.config['valid_csv'], self.mBatchSize)
-            valid_ds.init_dataset(False, True)
-
-        train_cb = nss_callbacks.recur_trainLog(self.config,
-            train_ds, test_ds, valid_ds,
-            self.mModel, self.mName, pIsCheckpoint)
+        train_cb = nss_callbacks.EPO_recur_trainLog(self.config, test_ds, self.mModel, self.mName, pIsCheckpoint)
 
         train_cb.on_train_begin()
         numEpochs = self.config['epochs']
@@ -60,14 +45,11 @@ class neural_kdtree :
         for epoch in range(numEpochs) :
             global_loss_log = {}
 
-            # dataset is a container that holds elements: a scene name vector and a corresponding point cloud vector
-            # a point cloud is an array of points
-            # a point is an array of three np.float32 values (x,y,z) (probably)
-            for step, (names, point_clouds) in enumerate(self.train_dataset) : # insert here own point clouds 
-                batch = point_clouds
-
+            batch = prim_cloud_gen.get_next_batch()
+            step = 0
+            while tf.size(batch) > 0: 
                 print('Epoch {0}/{1} - batch {2}/{3} - '.format(epoch + 1, numEpochs,
-                    step + 1, len(self.train_dataset),), end='', flush=True)
+                    step + 1, prim_cloud_gen.batch_limit,), end='', flush=True)
 
                 t0 = time.time()
 
@@ -103,6 +85,9 @@ class neural_kdtree :
             t0 = time.time()
             train_cb.on_epoch_end(epoch + 1, global_loss_log)
             print('elapsed time {0}'.format(time.time() - t0))
+            
+            batch = prim_cloud_gen.get_next_batch()
+            step += 1
 
         train_cb.on_train_end()
         self.__save_model()

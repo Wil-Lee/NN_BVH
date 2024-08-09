@@ -22,7 +22,7 @@ def train_vh() :
     #net.continue_training()
 
 def train_EPO():
-    net = nss_treeNet_model.neural_kdtree(nss_global_config.vh_config, 'EPO_tree')
+    net = nss_treeNet_model.neural_kdtree(nss_global_config.sah_config, 'EPO_tree')
     net.train_EPO()
 
     
