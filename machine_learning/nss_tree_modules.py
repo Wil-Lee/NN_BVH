@@ -152,34 +152,45 @@ class p_eval(tf.Module) :
 @tf.function
 @tf.custom_gradient
 def qL_fn(beta, axis_points, parent_mask, parent_min, parent_max, offset) :
+    # axis points are the projection of the points of the pc to the splitting dimension: split on x-axis -> projection to x
     offset = offset[..., tf.newaxis]
     node_mask = tf.einsum('bij, bij -> bij', parent_mask, tf.cast(axis_points <= offset, tf.float32))
     N = tf.reduce_sum(node_mask, axis=1)
 
     @tf.function
-    def next_step(mask, b) :
+    def next_step(mask, b):
+        # create a mask for the offset (left of b= 0, right of b = 1)
         mask_after_offset = tf.einsum('bij, bij -> bij', mask, tf.cast(axis_points > b, tf.float32))
+        # masks out all points which lay left of b (split_offset)
         axisR = tf.einsum('bij, bij -> bij', axis_points, mask_after_offset)
+        # returns the next split_offset where the amount of points in the left child gets incremented by one
         offset_above = tf.reduce_min(tf.abs(axisR - beta), axis=1, keepdims=True) + beta
+        # extracts the max point value of a right child in the current split dimension
         axis_max = tf.reduce_max(axisR, axis=1, keepdims=True)
+        # edge case handling
         offset_above = tf.math.minimum(offset_above, axis_max)
+        # probably means N+1 because it returns the amount of points left to the split_offset + 1 (the next offset value where N increases by one = offset_above)
         N1 = tf.reduce_sum(tf.einsum('bij, bij -> bij', mask, tf.cast(axis_points <= offset_above, tf.float32)), axis=1)
         return offset_above, N1
 
     @tf.function
-    def grad(upstream) :
+    def grad(upstream):
         offset_above, N1 = next_step(parent_mask, offset)
-        
+        # difference quotient between the current offset and the next offset where the size of the left child points increases
         slope = tf.math.divide_no_nan(N1 - N, offset_above[..., 0] - offset[..., 0])
+        # clips the difference quotient between the current offset and the next offset where the size of the left child points increases
         stepGrad = tf.clip_by_value(slope, 0.0, 1.0 / 0.0001)
 
         upstream_grad = stepGrad
+        # combines the local gradient with the upstream gradient
         upstream_grad = tf.einsum('bi, bi -> bi', upstream, upstream_grad)
+        # masks out all upstream values of points which are not inside the parent bounds
         upstream_grad = tf.einsum('bi, bi -> bi', upstream_grad, tf.cast(offset[..., 0] >= parent_min, tf.float32))
         upstream_grad = tf.einsum('bi, bi -> bi', upstream_grad, tf.cast(offset[..., 0] <= parent_max, tf.float32))
         return None, None, None, None, None, upstream_grad
 
     return N, grad
+
 
 @tf.function
 @tf.custom_gradient
