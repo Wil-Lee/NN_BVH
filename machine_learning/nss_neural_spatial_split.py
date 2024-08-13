@@ -13,7 +13,7 @@ class spatialSplit_Model(keras.Model) :
         self.treeLevels = self.config['tree_levels']
 
         self.batch_size = pConfig['batch_size']
-        self.splitter = nss_tree_modules.neuralNode_splitter()
+        self.splitter = nss_tree_modules.neuralNode_splitter(pConfig)
 
         self.w_eval = self.config['weight_fn']
         self.p_eval = self.config['p_fn']

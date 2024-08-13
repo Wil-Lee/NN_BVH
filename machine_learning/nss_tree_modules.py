@@ -3,12 +3,14 @@ import tensorflow as tf
 import nss_tree_common
 
 class neuralNode_splitter(tf.Module) :
-    def __init__(self) :
+    def __init__(self, config) :
         super(neuralNode_splitter, self).__init__()
+        self.config = config
         self.nX = tf.constant([1.0, 0.0, 0.0], dtype=tf.float32)
         self.nY = tf.constant([0.0, 1.0, 0.0], dtype=tf.float32)
         self.nZ = tf.constant([0.0, 0.0, 1.0], dtype=tf.float32)
-        self.gen_fn = self.gen_nodes
+        self.gen_fn = self.gen_nodes_EPO #if config['EPO'] else self.gen_nodes
+        self.beta = config['beta']
 
     @tf.function
     def tight_bounds(self, point_clouds, node_bounds) :
@@ -30,7 +32,89 @@ class neuralNode_splitter(tf.Module) :
         return \
             tf.where(tf.greater(N, 0), node_bmin + theta_bmin * diag, node_bmin), \
             tf.where(tf.greater(N, 0), node_bmin + theta_bmax * diag, node_bmax)
+    
+####################################################### EDIT ##################################################################################
+
+    #@tf.function
+    #@tf.custom_gradient
+    def child_bounds(self, beta, axis_points, parent_mask, parent_min, parent_max, offset):
+        offset = offset[..., tf.newaxis] * 0 + 1.5
+        mins = tf.reduce_min(axis_points, axis=2, keepdims=True)
+        maxs = tf.reduce_max(axis_points, axis=2, keepdims=True)
+
+        prims_left_to_split_mask = tf.einsum('bij, bij -> bij', parent_mask, tf.cast(maxs < offset, tf.float32))
+        prims_isecting_split_mask = tf.einsum('bij, bij -> bij', parent_mask, \
+                                                  tf.cast(tf.logical_and(mins <= offset, offset <= maxs), tf.float32))
+        left_child_prims_isecting_split_mask = tf.einsum('bij, bij -> bij', prims_isecting_split_mask, \
+            tf.cast(tf.abs(offset - mins) >= tf.abs(maxs - offset), tf.float32))
+        left_child_max_bound = tf.reduce_max(tf.einsum('bij, bij -> bij', maxs, left_child_prims_isecting_split_mask), axis=1)
+
+        left_child_prims_bool_mask = tf.cast(left_child_prims_isecting_split_mask + prims_left_to_split_mask, tf.bool)
+        right_child_prims_mask = tf.cast(tf.logical_not(left_child_prims_bool_mask), tf.float32)
+        total_max = tf.reduce_max(maxs)
+        # needed to eliminate 0s for reduce_min by adding total_max to all 0s of right child's primitives
+        right_child_prims_non_zero = (tf.cast(left_child_prims_bool_mask, tf.float32) * total_max) \
+            + tf.einsum('bij, bij -> bij', mins, right_child_prims_mask)
+        right_child_min_bound = tf.reduce_min(right_child_prims_non_zero, axis=1)
+
+        @tf.function
+        def next_step(mask, split_value):
+            isdfs = 5
         
+        @tf.function
+        def grad(upstream):
+            offset_above, N1 = next_step(parent_mask, offset)
+            slope = tf.math.divide_no_nan(N1 - N, offset_above[..., 0] - offset[..., 0])
+            stepGrad = tf.clip_by_value(slope, 0.0, 1.0 / 0.0001)
+
+            upstream_grad = stepGrad
+            upstream_grad = tf.einsum('bi, bi -> bi', upstream, upstream_grad)
+            upstream_grad = tf.einsum('bi, bi -> bi', upstream_grad, tf.cast(offset[..., 0] >= parent_min, tf.float32))
+            upstream_grad = tf.einsum('bi, bi -> bi', upstream_grad, tf.cast(offset[..., 0] <= parent_max, tf.float32))
+            return None, None, None, None, None, upstream_grad
+
+    #@tf.function
+    def gen_nodes_EPO(self, normal, theta, node_bounds, point_clouds):
+        node_bmin = node_bounds[:, 0:3]
+        node_bmax = node_bounds[:, 3:6]
+
+        b0 = tf.einsum('bk, k -> b', node_bmin, normal)[..., tf.newaxis]
+        b1 = tf.einsum('bk, k -> b', node_bmax, normal)[..., tf.newaxis]
+        theta_offset = b0 + theta * (b1 - b0)
+
+        parent_mask = tf.stop_gradient(nss_tree_common.build_mask_EPO(point_clouds, node_bounds))
+
+        # not sure if this (below) call would be differentiable therefore other functions are used:
+        # axis_points11 = tf.boolean_mask(point_clouds, tf.tile(normal, [3]), axis=2)
+        first_point_mask = tf.concat([normal, [0,0,0,0,0,0]], axis=0)
+        second_point_mask = tf.concat([[0,0,0], normal, [0,0,0]], axis=0)
+        third_point_mask = tf.concat([[0,0,0,0,0,0], normal], axis=0)
+        first_point_projection = tf.einsum('bijk, j -> bik', point_clouds[..., tf.newaxis], first_point_mask)
+        second_point_projection = tf.einsum('bijk, j -> bik', point_clouds[..., tf.newaxis], second_point_mask)
+        third_point_projection = tf.einsum('bijk, j -> bik', point_clouds[..., tf.newaxis], third_point_mask)
+
+        axis_points = tf.concat([first_point_projection, second_point_projection, third_point_projection], axis=2)
+        self.child_bounds(self.beta, axis_points, parent_mask, b0, b1, theta)
+
+        right_bmin_temp = tf.einsum('bk, k -> bk', node_bmin, 1.0 - normal) + tf.einsum('bi, k -> bk', theta_offset, normal)
+        right_bmax_temp = node_bmax
+
+        right_bmin = tf.minimum(right_bmin_temp, right_bmax_temp)
+        right_bmax = tf.maximum(right_bmin_temp, right_bmax_temp)
+
+        left_bmin_temp = node_bmin
+        left_bmax_temp = tf.einsum('bk, k -> bk', node_bmax, 1.0 - normal) + tf.einsum('bi, k -> bk', theta_offset, normal)
+
+        left_bmin = tf.minimum(left_bmin_temp, left_bmax_temp)
+        left_bmax = tf.maximum(left_bmin_temp, left_bmax_temp)
+
+        left_bbox = tf.concat([left_bmin, left_bmax], axis=-1)
+        right_bbox = tf.concat([right_bmin, right_bmax], axis=-1)
+        
+        return theta_offset, left_bbox, right_bbox
+
+###############################################################################################################################################
+
     @tf.function
     def gen_nodes(self, normal, theta, node_bounds, point_clouds) :
         node_bmin = node_bounds[:, 0:3]
@@ -38,6 +122,7 @@ class neuralNode_splitter(tf.Module) :
 
         b0 = tf.einsum('bk, k -> b', node_bmin, normal)[..., tf.newaxis]
         b1 = tf.einsum('bk, k -> b', node_bmax, normal)[..., tf.newaxis]
+        # global offset
         theta_offset = b0 + theta * (b1 - b0)
 
         right_bmin_temp = tf.einsum('bk, k -> bk', node_bmin, 1.0 - normal) + tf.einsum('bi, k -> bk', theta_offset, normal)
@@ -57,7 +142,7 @@ class neuralNode_splitter(tf.Module) :
         
         return theta_offset, left_bbox, right_bbox
 
-    @tf.function
+    #@tf.function
     def __call__(self, node_bounds, thetas, point_clouds=None) :
         thetas_X = thetas[:, 0:1]
         thetas_Y = thetas[:, 1:2]
@@ -159,7 +244,7 @@ def qL_fn(beta, axis_points, parent_mask, parent_min, parent_max, offset) :
 
     @tf.function
     def next_step(mask, b):
-        # create a mask for the offset (left of b= 0, right of b = 1)
+        # create a mask for the offset (left of b = 0, right of b = 1)
         mask_after_offset = tf.einsum('bij, bij -> bij', mask, tf.cast(axis_points > b, tf.float32))
         # masks out all points which lay left of b (split_offset)
         axisR = tf.einsum('bij, bij -> bij', axis_points, mask_after_offset)
