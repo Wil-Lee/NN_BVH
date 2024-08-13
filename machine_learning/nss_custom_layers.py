@@ -59,7 +59,7 @@ class recursive_tree_level_encoder(tf.keras.layers.Layer) :
         features = tf.einsum('bijf, bik -> bijf', features, mask)
         return (features, tf.squeeze(xyz_min), tf.squeeze(xyz_max))
 
-    #@tf.function
+    @tf.function
     def call(self, input) :
         point_cloud, node_bounds = input
 
@@ -128,7 +128,7 @@ class recursive_tree_level_encoder_EPO(tf.keras.layers.Layer) :
             use_bias=use_bias,
             name=layer_name)
     
-    #@tf.function
+    @tf.function
     def map_from_to_opt(self, points, old_min, old_max, new_min, new_max) :
         """ Scales points to [0,1) """
         do = old_max - old_min
@@ -139,7 +139,7 @@ class recursive_tree_level_encoder_EPO(tf.keras.layers.Layer) :
         new_min = tf.tile(new_min, [1,1,3,1])
         return tf.einsum('bpjk, bijk -> bpjk', (points - old_min), a) + new_min
 
-    #@tf.function
+    @tf.function
     def object_normalize(self, pc, mask):
         
         xyz_axis = tf.expand_dims(pc, axis=-1)
@@ -167,7 +167,7 @@ class recursive_tree_level_encoder_EPO(tf.keras.layers.Layer) :
         features = tf.einsum('bijf, bik -> bijf', features, mask)
         return (features, tf.squeeze(xyz_min), tf.squeeze(xyz_max))
 
-    #@tf.function
+    @tf.function
     def call(self, input) :
         point_cloud, node_bounds = input
 
