@@ -151,6 +151,13 @@ class scene:
         for _ in range(0,  self.batch_size):
             self.batch_primitive_clouds.append(np.array(self.primitive_cloud.primitives))
 
+        self.backup_batch_primitives_AABB_lists = copy.deepcopy(self.batch_primitives_AABB_lists)
+        self.backup_batch_primitive_clouds = copy.deepcopy(self.batch_primitive_clouds)
+
+    def reset(self):
+        self.backup_batch_primitives_AABB_lists = copy.deepcopy(self.backup_batch_primitives_AABB_lists)
+        self.batch_primitive_clouds = copy.deepcopy(self.backup_batch_primitive_clouds)
+        self.rng = np.random.default_rng(self.rng_seed)
 
     def get_test_dataset(self, dataset_size):
         backup_batch_primitives_AABB_lists = copy.deepcopy(self.batch_primitives_AABB_lists)
@@ -238,6 +245,9 @@ class primitive_cloud_generator:
         print("... done.")
         self.batch_limit = len(self.scenes) * self.batch_sets_per_scene
 
+    def reset_scenes(self):
+        for scene in self.scenes:
+            scene.reset()
 
     def get_next_batch(self):
         if self.scene_index >= self.batch_limit:
