@@ -138,9 +138,9 @@ class spatialSplit_Model(keras.Model) :
 
     def set_initial_input(self, point_cloud, root_node) :
         if self.config['EPO']:
-            x_coords = tf.gather(point_cloud, indices=[0, 3, 6], axis=2)
-            y_coords = tf.gather(point_cloud, indices=[1, 4, 7], axis=2)
-            z_coords = tf.gather(point_cloud, indices=[2, 5, 8], axis=2)
+            x_coords = point_cloud[:,:,:3]
+            y_coords = point_cloud[:,:,3:6]
+            z_coords = point_cloud[:,:,6:9]
             min_x = tf.reduce_min(tf.reduce_min(x_coords, axis=1), axis=1, keepdims=True)
             min_y = tf.reduce_min(tf.reduce_min(y_coords, axis=1), axis=1, keepdims=True)
             min_z = tf.reduce_min(tf.reduce_min(z_coords, axis=1), axis=1, keepdims=True)

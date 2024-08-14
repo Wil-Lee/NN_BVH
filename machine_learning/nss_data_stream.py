@@ -230,6 +230,7 @@ class primitive_cloud_generator:
         self.scene_index = 0
         self.scenes : list[scene] = []
         self.test_dataset = []
+        self.coordinates_order = [0,3,6,1,4,7,2,5,8]
 
         print("Loading scenes and test dataset...")
         for scene_file in os.listdir(self.scene_folder):
@@ -257,5 +258,7 @@ class primitive_cloud_generator:
         with warnings.catch_warnings():
             warnings.simplefilter("ignore", RuntimeWarning)
             transformed_scenes_batch = np.array(cur_scene.get_next_tranformed_batch()).reshape(self.batch_size, self.prim_cloud_size, 9)
-
-        return tf.convert_to_tensor(transformed_scenes_batch, dtype=tf.float32)
+        
+        result = tf.convert_to_tensor(transformed_scenes_batch, dtype=tf.float32)
+        result = tf.gather(result, self.coordinates_order, axis=2)
+        return result

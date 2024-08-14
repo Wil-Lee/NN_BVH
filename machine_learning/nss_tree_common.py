@@ -51,9 +51,9 @@ def build_mask(point_cloud, bounds, lower_bound = 0.0, upper_bound = 1.0) :
 
 @tf.function
 def build_mask_EPO_(point_cloud, bmin, bmax, lower_bound = 0.0, upper_bound = 1.0):
-    x1, x2, x3 = point_cloud[..., 0], point_cloud[..., 3], point_cloud[..., 6]
-    y1, y2, y3 = point_cloud[..., 1], point_cloud[..., 4], point_cloud[..., 7]
-    z1, z2, z3 = point_cloud[..., 2], point_cloud[..., 5], point_cloud[..., 8]
+    x1, x2, x3 = tf.unstack(point_cloud[..., :3], axis=-1)
+    y1, y2, y3 = tf.unstack(point_cloud[..., 3:6], axis=-1) 
+    z1, z2, z3 = tf.unstack(point_cloud[..., 6:9], axis=-1)
 
     x_bmin = bmin[..., 0:1]
     y_bmin = bmin[..., 1:2]

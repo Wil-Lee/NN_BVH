@@ -103,16 +103,16 @@ class recursive_tree_level_encoder_EPO(tf.keras.layers.Layer) :
     def __init__(self, lvl, **pConfig) :
         super(recursive_tree_level_encoder_EPO, self).__init__(name='tree_level_encoder_{0}'.format(lvl))
 
-        self.projection_layer = self._get_linear2D(1, 'proj_layer_' + str(lvl), activ='linear', kernel_init='glorot_uniform')
-        self.layer1 = self._get_linear2D(pConfig['dense_units_point_enc'], 'Conv_layer_1_' + str(lvl), activ='relu', kernel_init='he_uniform')
-        self.layer2 = self._get_linear2D(pConfig['dense_units_point_enc'], 'Conv_layer_2_' + str(lvl), activ='relu', kernel_init='he_uniform')
-        self.layer3 = self._get_linear2D(pConfig['dense_units_point_enc'], 'Conv_layer_3_' + str(lvl), activ='relu', kernel_init='he_uniform')
-        self.layer4 = self._get_linear2D(pConfig['dense_units_point_enc'], 'Conv_layer_4_' + str(lvl), activ='relu', kernel_init='he_uniform')
-        self.layer5 = self._get_linear2D(pConfig['dense_units_point_enc'], 'Conv_layer_5_' + str(lvl), activ='relu', kernel_init='he_uniform')
+        self.projection_layer = self._get_linear2D(1, (1, 1), (1, 1), 'proj_layer_' + str(lvl), activ='linear', kernel_init='glorot_uniform')
+        self.layer1 = self._get_linear2D(pConfig['dense_units_point_enc'], (1, 3), (1, 3), 'Conv_layer_1_' + str(lvl), activ='relu', kernel_init='he_uniform')
+        self.layer2 = self._get_linear2D(pConfig['dense_units_point_enc'], (1, 1), (1, 1), 'Conv_layer_2_' + str(lvl), activ='relu', kernel_init='he_uniform')
+        self.layer3 = self._get_linear2D(pConfig['dense_units_point_enc'], (1, 1), (1, 1), 'Conv_layer_3_' + str(lvl), activ='relu', kernel_init='he_uniform')
+        self.layer4 = self._get_linear2D(pConfig['dense_units_point_enc'], (1, 1), (1, 1), 'Conv_layer_4_' + str(lvl), activ='relu', kernel_init='he_uniform')
+        self.layer5 = self._get_linear2D(pConfig['dense_units_point_enc'], (1, 1), (1, 1), 'Conv_layer_5_' + str(lvl), activ='relu', kernel_init='he_uniform')
 
-        self.offset_layer1 = self._get_linear2D(pConfig['dense_units_point_enc'], 'regr_layer_1_' + str(lvl), activ='relu', kernel_init='he_uniform')
-        self.offset_layer2 = self._get_linear2D(pConfig['dense_units_point_enc'] // 2, 'regr_layer_2_' + str(lvl), activ='relu', kernel_init='he_uniform')
-        self.offset_layer3 = self._get_linear2D(1, 'regr_layer_3_' + str(lvl), activ='linear', kernel_init='glorot_uniform')
+        self.offset_layer1 = self._get_linear2D(pConfig['dense_units_point_enc'], (1, 1), (1, 1), 'regr_layer_1_' + str(lvl), activ='relu', kernel_init='he_uniform')
+        self.offset_layer2 = self._get_linear2D(pConfig['dense_units_point_enc'] // 2, (1, 1), (1, 1),  'regr_layer_2_' + str(lvl), activ='relu', kernel_init='he_uniform')
+        self.offset_layer3 = self._get_linear2D(1, (1, 1), (1, 1), 'regr_layer_3_' + str(lvl), activ='linear', kernel_init='glorot_uniform')
 
         self.lvl = lvl
         self.gamma = tf.constant([pConfig['layer_gamma']], dtype=tf.float32)
@@ -120,9 +120,9 @@ class recursive_tree_level_encoder_EPO(tf.keras.layers.Layer) :
        
         self.flatten = Flatten()
 
-    def _get_linear2D(self, filter_size, layer_name, activ, kernel_init, use_bias=False) :
+    def _get_linear2D(self, filter_size, ker_size, stride, layer_name, activ, kernel_init, use_bias=False) :
         return Conv2D(filters=filter_size,
-            kernel_size=(1, 1), strides=(1, 1), padding='valid',
+            kernel_size=ker_size, strides=stride, padding='valid',
             kernel_initializer=kernel_init,
             activation=activ,
             use_bias=use_bias,
@@ -134,9 +134,9 @@ class recursive_tree_level_encoder_EPO(tf.keras.layers.Layer) :
         do = old_max - old_min
         dn = new_max - new_min
         a = tf.math.divide_no_nan(dn, do) # scaling factor
-        a = tf.tile(a, [1,1,3,1])
-        old_min = tf.tile(old_min, [1,1,3,1])
-        new_min = tf.tile(new_min, [1,1,3,1])
+        a = tf.repeat(a, repeats=3, axis=2)
+        old_min = tf.repeat(old_min, repeats=3, axis=2)
+        new_min = tf.repeat(new_min, repeats=3, axis=2)
         return tf.einsum('bpjk, bijk -> bpjk', (points - old_min), a) + new_min
 
     @tf.function
@@ -144,9 +144,9 @@ class recursive_tree_level_encoder_EPO(tf.keras.layers.Layer) :
         
         xyz_axis = tf.expand_dims(pc, axis=-1)
 
-        x_coords = tf.gather(xyz_axis, indices=[0, 3, 6], axis=2)
-        y_coords = tf.gather(xyz_axis, indices=[1, 4, 7], axis=2)
-        z_coords = tf.gather(xyz_axis, indices=[2, 5, 8], axis=2)
+        x_coords = xyz_axis[:,:,:3]
+        y_coords = xyz_axis[:,:,3:6]
+        z_coords = xyz_axis[:,:,6:9]
         min_x = tf.reduce_min(tf.reduce_min(tf.abs(x_coords - self.beta), axis=1), axis=1, keepdims=True) + self.beta
         min_y = tf.reduce_min(tf.reduce_min(tf.abs(y_coords - self.beta), axis=1), axis=1, keepdims=True) + self.beta
         min_z = tf.reduce_min(tf.reduce_min(tf.abs(z_coords - self.beta), axis=1), axis=1, keepdims=True) + self.beta
@@ -198,11 +198,6 @@ class recursive_tree_level_encoder_EPO(tf.keras.layers.Layer) :
         local_thetas = self.offset_layer2(local_thetas)
         local_thetas = self.offset_layer3(local_thetas)
         local_thetas = self.flatten(local_thetas)
-
-        x_split = tf.reduce_sum(tf.gather(local_thetas, indices=[0, 3, 6], axis=1), axis=1, keepdims=True) / 3.0
-        y_split = tf.reduce_sum(tf.gather(local_thetas, indices=[1, 4, 7], axis=1), axis=1, keepdims=True) / 3.0
-        z_split = tf.reduce_sum(tf.gather(local_thetas, indices=[2, 5, 8], axis=1), axis=1, keepdims=True) / 3.0
-        local_thetas = tf.concat([x_split, y_split, z_split], axis=1) 
 
         s = tf.stop_gradient(tf.math.divide_no_nan(max_values - min_values, node_bmax - node_bmin))
         t = tf.stop_gradient(tf.math.divide_no_nan(min_values - node_bmin, node_bmax - node_bmin))

@@ -43,16 +43,13 @@ class neuralNode_splitter(tf.Module) :
 
         parent_mask = tf.stop_gradient(nss_tree_common.build_mask_EPO(point_clouds, node_bounds))
 
-        # not sure if this (below) call would be differentiable therefore other functions are used:
-        # axis_points11 = tf.boolean_mask(point_clouds, tf.tile(normal, [3]), axis=2)
-        first_point_mask = tf.concat([normal, [0,0,0,0,0,0]], axis=0)
-        second_point_mask = tf.concat([[0,0,0], normal, [0,0,0]], axis=0)
-        third_point_mask = tf.concat([[0,0,0,0,0,0], normal], axis=0)
-        first_point_projection = tf.einsum('bijk, j -> bik', point_clouds[..., tf.newaxis], first_point_mask)
-        second_point_projection = tf.einsum('bijk, j -> bik', point_clouds[..., tf.newaxis], second_point_mask)
-        third_point_projection = tf.einsum('bijk, j -> bik', point_clouds[..., tf.newaxis], third_point_mask)
+        if tf.reduce_all(tf.equal(normal, [1,0,0])):
+            axis_points = point_clouds[:,:,0:3]
+        elif tf.reduce_all(tf.equal(normal, [0,1,0])):
+            axis_points = point_clouds[:,:,3:6]
+        else:
+            axis_points = point_clouds[:,:,6:9]
 
-        axis_points = tf.concat([first_point_projection, second_point_projection, third_point_projection], axis=2)
         (theta_offset_left, theta_offset_right) = child_bounds(self.beta, axis_points, parent_mask, b0, b1, theta)
 
         right_bmin_temp = tf.einsum('bk, k -> bk', node_bmin, 1.0 - normal) + tf.einsum('bi, k -> bk', theta_offset_right, normal)
