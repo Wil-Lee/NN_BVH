@@ -73,15 +73,12 @@ epo_config['name'] = buildNetworkName(
     epo_config['dense_units_point_enc'])
 
 epo_config['EPO'] = True
-# TODO: config!
 
-epo_config['weight_fn'] = nss_tree_modules.sah_eval()
-epo_config['pooling_fn'] = nss_tree_modules.pool_treelet(t, 4 if init_config['train_unbalanced'] else 3,
-    nss_tree_modules.p_eval(t_isect),
-    nss_tree_modules.q_eval(i_isect, beta),
-    nss_tree_modules.gr_q_eval(i_isect),
-    nss_tree_modules.sah_eval(),
-    init_config['norm_factor'])
+epo_config['weight_fn'] = nss_tree_modules.sah_eval() # TODO: maybe change
+epo_config['pooling_fn'] = nss_tree_modules.pool_treelet_EPO(t, t_isect, 4 if init_config['train_unbalanced'] else 3,
+    init_config['norm_factor'],
+    beta,
+    i_isect)
 
 sah_config = init_config.copy()
 
