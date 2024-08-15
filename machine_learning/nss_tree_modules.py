@@ -145,10 +145,11 @@ def child_bounds(beta, axis_points, parent_mask, parent_min, parent_max, offset)
             + right_child_prims_mids
         
         offset_above = tf.reduce_min(right_child_prims_mids_non_zero, axis=1, keepdims=True)
+        prims_increase = tf.reduce_sum(tf.cast(tf.equal(right_child_prims_mids, offset_above), tf.float32), axis=1)
         axis_max = tf.reduce_max(maxs, axis=1, keepdims=True)
         offset_above = tf.math.minimum(offset_above, axis_max)
 
-        N1 = N + 1
+        N1 = N + prims_increase
         return offset_above, N1
     
     @tf.function
@@ -267,6 +268,7 @@ def qL_fn(beta, axis_points, parent_mask, parent_min, parent_max, offset) :
         # edge case handling
         offset_above = tf.math.minimum(offset_above, axis_max)
         # probably means N+1 because it returns the amount of points left to the split_offset + 1 (the next offset value where N increases by one = offset_above)
+        # it is possible that the difference between N and N1 is bigger than 1 because there could be multiple points at offset_above
         N1 = tf.reduce_sum(tf.einsum('bij, bij -> bij', mask, tf.cast(axis_points <= offset_above, tf.float32)), axis=1)
         return offset_above, N1
 
