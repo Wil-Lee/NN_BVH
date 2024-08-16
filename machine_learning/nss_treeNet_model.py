@@ -44,10 +44,10 @@ class neural_kdtree :
         
         for epoch in range(numEpochs) :
             global_loss_log = {}
-
             batch = prim_cloud_gen.get_next_batch()
             step = 0
-            while tf.size(batch) > 0: 
+            while tf.size(batch) > 0:
+                
                 print('Epoch {0}/{1} - batch {2}/{3} - '.format(epoch + 1, numEpochs,
                     step + 1, prim_cloud_gen.batch_limit,), end='', flush=True)
 
@@ -73,21 +73,22 @@ class neural_kdtree :
                 for key, value in batch_loss.items() :
                     print('{0}: {1:.4f} - '.format(key, value), end='', flush=False)
                 print('', flush=True)
+                step += 1
+                batch = prim_cloud_gen.get_next_batch()
 
             for key, value in global_loss_log.items() :
-                global_loss_log[key] /= len(self.train_dataset)
+                global_loss_log[key] /= len(test_ds)
 
             if (epoch + 1) % self.checkpoint_window == 0 :
                 print('Exporting checkpoint')
                 self.__save_model()
 
-            print('Evaluating test set... ', end='', flush=True)
-            t0 = time.time()
-            train_cb.on_epoch_end(epoch + 1, global_loss_log)
-            print('elapsed time {0}'.format(time.time() - t0))
-            
-            batch = prim_cloud_gen.get_next_batch()
-            step += 1
+            #print('Evaluating test set... ', end='', flush=True)
+            #t0 = time.time()
+            #train_cb.on_epoch_end(epoch + 1, global_loss_log)
+            #print('elapsed time {0}'.format(time.time() - t0))
+
+            prim_cloud_gen.reset_scenes()
 
         train_cb.on_train_end()
         self.__save_model()

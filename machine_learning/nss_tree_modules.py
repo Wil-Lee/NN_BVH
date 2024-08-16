@@ -40,6 +40,7 @@ class neuralNode_splitter(tf.Module) :
 
         b0 = tf.einsum('bk, k -> b', node_bmin, normal)[..., tf.newaxis]
         b1 = tf.einsum('bk, k -> b', node_bmax, normal)[..., tf.newaxis]
+        theta_offset = b0 + theta * (b1 - b0)
 
         parent_mask = tf.stop_gradient(nss_tree_common.build_mask_EPO(point_clouds, node_bounds))
 
@@ -68,7 +69,7 @@ class neuralNode_splitter(tf.Module) :
         left_bbox = tf.concat([left_bmin, left_bmax], axis=-1)
         right_bbox = tf.concat([right_bmin, right_bmax], axis=-1)
 
-        return (theta_offset_left, theta_offset_right), left_bbox, right_bbox
+        return (theta_offset_left, theta_offset_right, theta_offset), left_bbox, right_bbox
 
     @tf.function
     def gen_nodes(self, normal, theta, node_bounds, point_clouds) :
@@ -377,7 +378,7 @@ class pool_treelet(tf.Module) :
         pred_planes = tf.concat([pred_planes, pred_splits], axis=1)
         return pred_planes
 
-    #@tf.function
+    @tf.function
     def eval_leaves(self, point_clouds,
         # q_eval returns the amount of leaves for both nodes
         # p_eval returns the traversal cost constant
@@ -412,7 +413,7 @@ class pool_treelet(tf.Module) :
         
         return Cnode, CxL, CxR, CyL, CyR, CzL, CzR, Cleaf
 
-    #@tf.function
+    @tf.function
     def eval_interior(self, point_clouds,
         root_bounds, parent_bounds, parent_normal, parent_offset, node_bounds) :
         
@@ -422,7 +423,7 @@ class pool_treelet(tf.Module) :
 
         return Cnode
 
-    #@tf.function
+    @tf.function
     def pool_leaves_soft(self, flag, point_clouds,
         root_bounds, parent_bounds, parent_normal, parent_offset, node_bounds,
         offsetX, offsetY, offsetZ,
@@ -451,7 +452,7 @@ class pool_treelet(tf.Module) :
     
         return (Cnode + CxL + CxR, Cnode + CyL + CyR, Cnode + CzL + CzR)
 
-    #@tf.function
+    @tf.function
     def pool_interior_soft(self, flag, point_clouds,
         root_bounds, parent_bounds, parent_normal, parent_offset, node_bounds,
         CxL, CxR, CyL, CyR, CzL, CzR,
@@ -554,7 +555,9 @@ class pool_treelet(tf.Module) :
                 tf.concat([offsetX, offsetY, offsetZ, tf.ones_like(offsetZ)], axis=-1),
                 split_planes)
 
+
 ####################################################### EDIT ##################################################################################
+
 
 #@tf.function
 def prims_intersecting_node(node_bounds, point_cloud):
@@ -592,6 +595,55 @@ def prims_intersecting_node(node_bounds, point_cloud):
     return tf.logical_and(at_least_one_inside, at_least_one_outside)
 
 
+@tf.function
+@tf.custom_gradient
+def qL_fn_SAH(beta, axis_points, parent_mask, parent_min, parent_max, offset):
+    left_offset = offset[0][..., tf.newaxis]
+    right_offset = offset[1][..., tf.newaxis]
+    
+    mins = tf.reduce_min(axis_points, axis=2, keepdims=True)
+    maxs = tf.reduce_max(axis_points, axis=2, keepdims=True)
+    
+    left_child_prims_mask = tf.einsum('bij, bij -> bij', parent_mask, tf.cast(maxs <= left_offset, tf.float32))
+    right_child_prims_mask = tf.einsum('bij, bij -> bij', parent_mask, tf.cast(mins >= right_offset, tf.float32))
+    
+    total_max = tf.reduce_max(maxs)
+    
+    N = tf.reduce_sum(left_child_prims_mask, axis=1)
+    
+    @tf.function
+    def next_step(mask):
+        right_child_mins = tf.einsum('bij, bij -> bij', mins, right_child_prims_mask)
+        right_child_maxs = tf.einsum('bij, bij -> bij', maxs, right_child_prims_mask)
+
+        right_child_prims_mids = right_child_mins + ((right_child_maxs - right_child_mins) * 0.5)
+        right_child_prims_mids_non_zero = (left_child_prims_mask * total_max) \
+            + right_child_prims_mids
+
+        offset_above = tf.reduce_min(right_child_prims_mids_non_zero, axis=1, keepdims=True)
+        prims_increase = tf.reduce_sum(tf.cast(tf.equal(right_child_prims_mids, offset_above), tf.float32), axis=1)
+        axis_max = tf.reduce_max(maxs, axis=1, keepdims=True)
+        offset_above = tf.math.minimum(offset_above, axis_max)
+
+        N1 = N + prims_increase
+        return offset_above, N1
+
+    @tf.function
+    def grad(upstream):
+        offset_above, N1 = next_step(parent_mask)
+        split_offset = (offset[2])[..., tf.newaxis]
+        slope = tf.math.divide_no_nan(N1 - N, offset_above[..., 0] - split_offset[..., 0])
+        stepGrad = tf.clip_by_value(slope, 0.0, 1.0 / 0.0001)
+
+        upstream_grad = stepGrad
+        upstream_grad = tf.einsum('bi, bi -> bi', upstream, upstream_grad)
+        upstream_grad = tf.einsum('bi, bi -> bi', upstream_grad, tf.cast(split_offset[..., 0] >= parent_min, tf.float32))
+        upstream_grad = tf.einsum('bi, bi -> bi', upstream_grad, tf.cast(split_offset[..., 0] <= parent_max, tf.float32))
+        return None, None, None, None, None, None, None, upstream_grad
+    
+    return N, grad
+
+
 class pool_treelet_EPO(tf.Module) :
     def __init__(self, t, t_iscet_cost, num_splits, normFactor, beta, i_isect_cost) :
         super(pool_treelet_EPO, self).__init__()
@@ -606,8 +658,55 @@ class pool_treelet_EPO(tf.Module) :
         self.nZ = tf.constant([0.0, 0.0, 1.0], dtype=tf.float32)
         self.i_isect_cost = i_isect_cost
         self.beta = beta
+        self.w_eval_SAH = sah_eval()
+        self.qL_fn_SAH = qL_fn_SAH
 
-    #@tf.function
+    @tf.function
+    def pool_interior_soft(self, flag, point_clouds,
+        root_bounds, parent_bounds, parent_normal, parent_offset, node_bounds,
+        CxL, CxR, CyL, CyR, CzL, CzR,
+        CxL_leaf, CxR_leaf,
+        CyL_leaf, CyR_leaf,
+        CzL_leaf, CzR_leaf) :
+        
+        Cnode_SAH, Cnode_EPO = self.eval_interior(point_clouds,
+            root_bounds, parent_bounds, parent_normal, parent_offset, node_bounds)
+        
+        #TODO: Add scene alpha
+        scene_alpha = 0.5
+        Cnode = (1 - scene_alpha) * Cnode_SAH + scene_alpha * Cnode_EPO
+
+        parent_mask = tf.stop_gradient(nss_tree_common.build_mask(point_clouds, parent_bounds))
+        QleafL, QleafR = self.q_eval_SAH(point_clouds, parent_normal, parent_offset, parent_bounds, parent_mask)
+        QleafRoot = tf.ones_like(QleafL) * self.normFactor
+        Qleaf = QleafRoot * flag[0] + QleafL * flag[1] + QleafR * flag[2] 
+        Cleaf = Qleaf * self.w_eval_EPO(root_bounds, node_bounds, point_clouds) # only needed for unbalanced tree
+        
+        return self.pool_soft(Cnode, CxL, CxR, CyL, CyR, CzL, CzR, Cleaf)
+    
+    @tf.function
+    def eval_interior(self, point_clouds,
+        root_bounds, parent_bounds, parent_normal, parent_offset, node_bounds) :
+        
+        Cnode_EPO = \
+            self.p_eval(point_clouds, parent_normal, parent_offset, parent_bounds, node_bounds) * \
+            self.w_eval_EPO(root_bounds, node_bounds, point_clouds)
+        
+        Cnode_SAH = \
+            self.p_eval(point_clouds, parent_normal, parent_offset, parent_bounds, node_bounds) * \
+            self.w_eval_SAH(root_bounds, node_bounds, point_clouds)
+
+        return Cnode_SAH, Cnode_EPO
+    
+    @tf.function
+    def pool_soft(self, Cnode, CxL, CxR, CyL, CyR, CzL, CzR, Cleaf) :
+        cost_x = Cnode + CxL + CxR
+        cost_y = Cnode + CyL + CyR
+        cost_z = Cnode + CzL + CzR
+        treelet_cost = self.soft_min(cost_x, cost_y, cost_z, Cleaf, self.t)
+        return treelet_cost
+
+    @tf.function
     def pool_leaves_soft(self, flag, point_clouds,
         root_bounds, parent_bounds, parent_normal, parent_offset, node_bounds,
         offsetX, offsetY, offsetZ,
@@ -621,7 +720,7 @@ class pool_treelet_EPO(tf.Module) :
         
         return (self.pool_soft_EPO(Cnode, CxL, CxR, CyL, CyR, CzL, CzR, Cleaf), Cleaf)
     
-    #@tf.function
+    @tf.function
     def pool_soft_EPO(self, Cnode, CxL, CxR, CyL, CyR, CzL, CzR, Cleaf) :
         cost_x = Cnode + CxL + CxR
         cost_y = Cnode + CyL + CyR
@@ -629,64 +728,89 @@ class pool_treelet_EPO(tf.Module) :
         treelet_cost = self.soft_min(cost_x, cost_y, cost_z, Cleaf, self.t)
         return treelet_cost
     
-    #@tf.function
+    
+    @tf.function
     def eval_leaves_EPO(self, point_clouds,
         root_bounds, parent_bounds, parent_normal, parent_offset, node_bounds,
         offsetX, offsetY, offsetZ,
         xL_bounds, xR_bounds, yL_bounds, yR_bounds, zL_bounds, zR_bounds,
         flag) :
 
-        Cnode = \
-            self.p_eval_EPO(point_clouds, parent_normal, parent_offset, parent_bounds, node_bounds) * \
+        Cnode_EPO = \
+            self.p_eval(point_clouds, parent_normal, parent_offset, parent_bounds, node_bounds) * \
             self.w_eval_EPO(root_bounds, node_bounds, point_clouds)
+        
+        Cnode_SAH = \
+            self.p_eval(point_clouds, parent_normal, parent_offset, parent_bounds, node_bounds) * \
+            self.w_eval_SAH(root_bounds, node_bounds, point_clouds)
 
-        node_mask = tf.stop_gradient(nss_tree_common.build_mask(point_clouds, node_bounds))
+        node_mask = tf.stop_gradient(nss_tree_common.build_mask_EPO(point_clouds, node_bounds))
         
-        qL_X, qR_X = self.q_eval_EPO(point_clouds, self.nX, offsetX, node_bounds, node_mask)
-        qL_Y, qR_Y = self.q_eval_EPO(point_clouds, self.nY, offsetY, node_bounds, node_mask)
-        qL_Z, qR_Z = self.q_eval_EPO(point_clouds, self.nZ, offsetZ, node_bounds, node_mask)
+        qL_X_SAH, qR_X_SAH = self.q_eval_SAH(point_clouds, self.nX, offsetX, node_bounds, node_mask)
+        qL_Y_SAH, qR_Y_SAH = self.q_eval_SAH(point_clouds, self.nY, offsetY, node_bounds, node_mask)
+        qL_Z_SAH, qR_Z_SAH = self.q_eval_SAH(point_clouds, self.nZ, offsetZ, node_bounds, node_mask)
         
-        CxL = qL_X * self.w_eval_EPO(root_bounds, xL_bounds, point_clouds)
-        CxR = qR_X * self.w_eval_EPO(root_bounds, xR_bounds, point_clouds)
-        CyL = qL_Y * self.w_eval_EPO(root_bounds, yL_bounds, point_clouds)
-        CyR = qR_Y * self.w_eval_EPO(root_bounds, yR_bounds, point_clouds)
-        CzL = qL_Z * self.w_eval_EPO(root_bounds, zL_bounds, point_clouds)
-        CzR = qR_Z * self.w_eval_EPO(root_bounds, zR_bounds, point_clouds)
+        CxL_SAH = qL_X_SAH * self.w_eval_SAH(root_bounds, xL_bounds, point_clouds)
+        CxR_SAH = qR_X_SAH * self.w_eval_SAH(root_bounds, xR_bounds, point_clouds)
+        CyL_SAH = qL_Y_SAH * self.w_eval_SAH(root_bounds, yL_bounds, point_clouds)
+        CyR_SAH = qR_Y_SAH * self.w_eval_SAH(root_bounds, yR_bounds, point_clouds)
+        CzL_SAH = qL_Z_SAH * self.w_eval_SAH(root_bounds, zL_bounds, point_clouds)
+        CzR_SAH = qR_Z_SAH * self.w_eval_SAH(root_bounds, zR_bounds, point_clouds)
 
         parent_mask = tf.stop_gradient(nss_tree_common.build_mask(point_clouds, parent_bounds))
-        QleafL, QleafR = self.q_eval_EPO(point_clouds, parent_normal, parent_offset, parent_bounds, parent_mask)
-        QleafRoot = tf.zeros_like(qL_X) * self.normFactor
-        Qleaf = QleafRoot * flag[0] + QleafL * flag[1] + QleafR * flag[2]
-        Cleaf = Qleaf * self.w_eval_EPO(root_bounds, node_bounds, point_clouds)
+        QleafL_SAH, QleafR_SAH = self.q_eval_SAH(point_clouds, parent_normal, parent_offset, parent_bounds, parent_mask)
+        QleafRoot_SAH = tf.zeros_like(qL_X_SAH) * self.normFactor
+        Qleaf_SAH = QleafRoot_SAH * flag[0] + QleafL_SAH * flag[1] + QleafR_SAH * flag[2]
+        Cleaf = Qleaf_SAH * self.w_eval_SAH(root_bounds, node_bounds, point_clouds) # only needed for unbalanced tree
+
+
+        CxL_EPO = self.w_eval_EPO(root_bounds, xL_bounds, point_clouds)
+        CxR_EPO = self.w_eval_EPO(root_bounds, xR_bounds, point_clouds)
+        CyL_EPO = self.w_eval_EPO(root_bounds, yL_bounds, point_clouds)
+        CyR_EPO = self.w_eval_EPO(root_bounds, yR_bounds, point_clouds)
+        CzL_EPO = self.w_eval_EPO(root_bounds, zL_bounds, point_clouds)
+        CzR_EPO = self.w_eval_EPO(root_bounds, zR_bounds, point_clouds)
+        #Cleaf_EPO = (Cnode_EPO / self.p_eval(point_clouds, parent_normal, parent_offset, parent_bounds, node_bounds)) * self.t_isect_cost
+
+        # TODO: Add scene alpha
+        scene_alpha = 0.5
+        Cnode = (1 - scene_alpha) * Cnode_SAH + scene_alpha * Cnode_EPO
+        CxL = (1 - scene_alpha) * CxL_SAH + scene_alpha * CxL_EPO
+        CxR = (1 - scene_alpha) * CxR_SAH + scene_alpha * CxR_EPO
+        CyL = (1 - scene_alpha) * CyL_SAH + scene_alpha * CyL_EPO
+        CyR = (1 - scene_alpha) * CyR_SAH + scene_alpha * CyR_EPO
+        CzL = (1 - scene_alpha) * CzL_SAH + scene_alpha * CzL_EPO
+        CzR = (1 - scene_alpha) * CzR_SAH + scene_alpha * CzR_EPO
+        #Cleaf = (1 - scene_alpha) * Cleaf_SAH + scene_alpha * Cleaf_EPO
         
         return Cnode, CxL, CxR, CyL, CyR, CzL, CzR, Cleaf
-    
-    #@tf.function
-    def p_eval_EPO(self, point_clouds, parent_normal, parent_offset, parent_bounds, bounds) :
+
+    @tf.function
+    def p_eval(self, point_clouds, parent_normal, parent_offset, parent_bounds, bounds) :
         return self.i_isect_cost
-        
-    #@tf.function
-    def w_eval_EPO(self, root_bounds, node_bounds, point_clouds):
-        prims_isect_node_mask = tf.stop_gradient(tf.cast(tf.expand_dims(prims_intersecting_node(node_bounds, point_clouds), axis=-1), tf.float32))
-        intersecting_prims = tf.einsum('bij, bik -> bij', point_clouds, prims_isect_node_mask)
-        
-        return self.surface_prims_EPO(intersecting_prims) / self.surface_prims_EPO(point_clouds)
     
-    #@tf.function
-    def q_eval_EPO(self, point_clouds, parent_normal, parent_offset, parent_bounds, parent_mask):
+    @tf.function
+    def q_eval_SAH(self, point_clouds, parent_normal, parent_offset, parent_bounds, parent_mask):
         if tf.reduce_all(tf.equal(parent_normal, [1,0,0])):
             axis_points = point_clouds[:,:,0:3]
         elif tf.reduce_all(tf.equal(parent_normal, [0,1,0])):
             axis_points = point_clouds[:,:,3:6]
         else:
             axis_points = point_clouds[:,:,6:9]
-        
+
         parent_minmax = tf.einsum('bij, j -> bi', tf.reshape(parent_bounds, [-1, 2, 3]), parent_normal)
         N = tf.stop_gradient(tf.reduce_sum(parent_mask, axis=1))
-        nL = self.qL_fn_EPO(self.beta, axis_points, parent_mask, parent_minmax[..., 0:1], parent_minmax[..., 1:], parent_offset)[0]
+        nL = self.qL_fn_SAH(self.beta, axis_points, parent_mask, parent_minmax[..., 0:1], parent_minmax[..., 1:], parent_offset)[0]
         return nL * self.t_isect_cost, (N - nL) * self.t_isect_cost
-    
-    #@tf.function
+        
+    @tf.function
+    def w_eval_EPO(self, root_bounds, node_bounds, point_clouds):
+        prims_isect_node_mask = tf.stop_gradient(tf.cast(tf.expand_dims(prims_intersecting_node(node_bounds, point_clouds), axis=-1), tf.float32))
+        intersecting_prims = tf.einsum('bij, bik -> bij', point_clouds, prims_isect_node_mask)
+        
+        return self.surface_prims_EPO(intersecting_prims) / self.surface_prims_EPO(point_clouds)
+
+    @tf.function
     def surface_prims_EPO(self, prims):
         P1 = tf.stack([prims[:, :, 0], prims[:, :, 3], prims[:, :, 6]], axis=-1)
         P2 = tf.stack([prims[:, :, 1], prims[:, :, 4], prims[:, :, 7]], axis=-1)
@@ -702,50 +826,4 @@ class pool_treelet_EPO(tf.Module) :
         surface_area *= 0.5
         
         return surface_area
-    
-    #@tf.function
-    #@tf.custom_gradient
-    def qL_fn_EPO(self, beta, axis_points, parent_mask, parent_min, parent_max, offset):
-        left_offset = offset[0][..., tf.newaxis]
-        right_offset = offset[1][..., tf.newaxis]
-        mins = tf.reduce_min(axis_points, axis=2, keepdims=True)
-        maxs = tf.reduce_max(axis_points, axis=2, keepdims=True)
-        
-        left_child_prims_mask = tf.einsum('bij, bij -> bij', parent_mask, tf.cast(maxs <= left_offset, tf.float32))
-        right_child_prims_mask = tf.einsum('bij, bij -> bij', parent_mask, tf.cast(mins >= right_offset, tf.float32))
-     
-        total_max = tf.reduce_max(maxs)
-        
-        N = tf.reduce_sum(left_child_prims_mask, axis=1)
-
-        @tf.function
-        def next_step(mask, split_value):
-            right_child_mins = tf.einsum('bij, bij -> bij', mins, right_child_prims_mask)
-            right_child_maxs = tf.einsum('bij, bij -> bij', maxs, right_child_prims_mask)
-
-            right_child_prims_mids = right_child_mins + ((right_child_maxs - right_child_mins) * 0.5)
-            right_child_prims_mids_non_zero = (left_child_prims_mask * total_max) \
-                + right_child_prims_mids
-            
-            offset_above = tf.reduce_min(right_child_prims_mids_non_zero, axis=1, keepdims=True)
-            prims_increase = tf.reduce_sum(tf.cast(tf.equal(right_child_prims_mids, offset_above), tf.float32), axis=1)
-            axis_max = tf.reduce_max(maxs, axis=1, keepdims=True)
-            offset_above = tf.math.minimum(offset_above, axis_max)
-
-            N1 = N + prims_increase
-            return offset_above, N1
-        
-        @tf.function
-        def grad(upstream, _):
-            offset_above, N1 = next_step(parent_mask, offset)
-            slope = tf.math.divide_no_nan(N1 - N, offset_above[..., 0] - offset[..., 0])
-            stepGrad = tf.clip_by_value(slope, 0.0, 1.0 / 0.0001)
-
-            upstream_grad = stepGrad
-            upstream_grad = tf.einsum('bi, bi -> bi', upstream, upstream_grad)
-            upstream_grad = tf.einsum('bi, bi -> bi', upstream_grad, tf.cast(offset[..., 0] >= parent_min, tf.float32))
-            upstream_grad = tf.einsum('bi, bi -> bi', upstream_grad, tf.cast(offset[..., 0] <= parent_max, tf.float32))
-            return None, None, None, None, None, upstream_grad
-
-        return N, grad
     

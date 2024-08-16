@@ -11,7 +11,7 @@ SCENES_DIR = os.path.join(os.getcwd(), 'machine_learning', 'obj_scenes')
 pc_size = 2048
 lvls = 4
 epochs = 1
-batch_sets_per_scene = 30
+batch_sets_per_scene = 1
 test_primitive_clouds_per_scene = 64
 capacity = 128
 batch_size = 32
@@ -24,6 +24,7 @@ t = 1.0
 learning_rate = 0.0001
 gamma = 1.0
 beta = 1.0
+# not supported for EPO:
 train_unbalanced = False
 sah_frag_name = '_fragments_{0}_sah'.format(pc_size)
 vh_frag_name = '_fragments_{0}_vh'.format(pc_size)
@@ -47,7 +48,7 @@ init_config = {
     'dense_units_regr' : capacity,
     'learning_rate' : learning_rate,
     'train_unbalanced' : train_unbalanced,
-    'checkpoint_window' : 15,
+    'checkpoint_window' : 15, ##################################### <-------- checkpoint
     'epochs' : epochs,
     'batch_size' : batch_size, 
     'scenes_dir' : SCENES_DIR,

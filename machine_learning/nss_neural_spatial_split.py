@@ -187,7 +187,7 @@ class spatialSplit_Model(keras.Model) :
                 for node_i, node in enumerate(nodes) :
                     with tape.stop_recording() :
                         # predecessor lthetas -> probably the split axis offset (3D vec with (x-splitaxis, y split-axis, z-splitaxis))
-                        pred_lthetas, scale, translate, = encoder([point_clouds, node.bounds]) # TODO: call method of custom_layers.py -> adapt there
+                        pred_lthetas, scale, translate, = encoder([point_clouds, node.bounds])
 
                     tape.watch(pred_lthetas)
 
@@ -260,13 +260,12 @@ class spatialSplit_Model(keras.Model) :
 
                 agglomerative_pooling[lvl_i + 1] = []
 
-            # TODO: change loss function - calculated over whole tree - take split
             pred_costs = agglomerative_pooling[0][0] * self.config['norm_factor']
             tree_loss = self.loss_fn(tf.zeros_like(pred_costs), pred_costs)
             loss = tree_loss + pen_loss
             mae = tf.reduce_mean(pred_costs)
 
-        batch_log = {} # empty? nothing gets added
+        batch_log = {}
         loss_over_offset = tape.gradient(loss, per_lvl_lthetas)
         grad = []
        
