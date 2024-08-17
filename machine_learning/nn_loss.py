@@ -27,6 +27,26 @@ def surface_area_primitive(prim: Primitive3):
     
     return surface_area
 
+def get_prims_laying_inside_node(aabb: AABB, prims: list[Primitive3]):
+    result = []
+    for prim in prims:
+        # checks if at least one node of a primitive lays inside the argument node's AABB
+        if (
+            (aabb.x_max >= prim[0][0] >= aabb.x_min and
+             aabb.y_max >= prim[0][1] >= aabb.y_min and
+             aabb.z_max >= prim[0][2] >= aabb.z_min)
+            or
+            (aabb.x_max >= prim[1][0] >= aabb.x_min and
+             aabb.y_max >= prim[1][1] >= aabb.y_min and
+             aabb.z_max >= prim[1][2] >= aabb.z_min)
+            or
+            (aabb.x_max >= prim[2][0] >= aabb.x_min and
+             aabb.y_max >= prim[2][1] >= aabb.y_min and
+             aabb.z_max >= prim[2][2] >= aabb.z_min)
+        ):
+            result.append(prim)
+    
+    return result
 
 def get_external_primitives_laying_inside_node(node: BVHNode) -> list[Primitive3]:
     """ 
@@ -82,23 +102,9 @@ def get_external_primitives_laying_inside_node(node: BVHNode) -> list[Primitive3
         
         if not current_node.is_leaf:
             continue
-        
-        for prim in current_node.primitives:
-            # checks if at least one node of a primitive lays inside the argument node's AABB
-            if (
-                (node.aabb.x_max >= prim[0][0] >= node.aabb.x_min and
-                 node.aabb.y_max >= prim[0][1] >= node.aabb.y_min and
-                 node.aabb.z_max >= prim[0][2] >= node.aabb.z_min)
-                or
-                (node.aabb.x_max >= prim[1][0] >= node.aabb.x_min and
-                 node.aabb.y_max >= prim[1][1] >= node.aabb.y_min and
-                 node.aabb.z_max >= prim[1][2] >= node.aabb.z_min)
-                or
-                (node.aabb.x_max >= prim[2][0] >= node.aabb.x_min and
-                 node.aabb.y_max >= prim[2][1] >= node.aabb.y_min and
-                 node.aabb.z_max >= prim[2][2] >= node.aabb.z_min)
-            ):
-                result.append(prim)
+
+        temp_result = get_prims_laying_inside_node(node.aabb, current_node.primitives)
+        result.extend(temp_result)
     
     return result
 
@@ -128,6 +134,29 @@ def EPO(head_node: BVHNode):
     return total_sum / total_surface_area
 
 
+def EPO_single_node(parent_node: BVHNode, split_axis: Axis, axis_pos: float, p_overlapping_prims: list[Primitive3]=[]):
+    parent_node.split(split_axis, axis_pos)
+
+    if p_overlapping_prims is []:
+        p_overlapping_prims = get_external_primitives_laying_inside_node(parent_node)
+
+    l_overlapping_prims = get_prims_laying_inside_node(parent_node.left_child.aabb, p_overlapping_prims)
+    r_overlapping_prims = get_prims_laying_inside_node(parent_node.right_child.aabb, p_overlapping_prims)
+
+    p_surface = surface_area(p_overlapping_prims)
+    l_surface = surface_area(l_overlapping_prims)
+    r_surface = surface_area(r_overlapping_prims)
+
+    l_prim_count = len(parent_node.left_child.primitives)
+    r_prim_count = len(parent_node.right_child.primitives)
+
+    parent_node.left_child = None
+    parent_node.right_child = None
+
+    return (((l_surface / p_surface) * l_prim_count) + ((r_surface / p_surface)) * r_prim_count) * C_tri,\
+        l_overlapping_prims, r_overlapping_prims
+    
+
 def SAH(head_node: BVHNode):
     inner_nodes, leaf_nodes = head_node.to_list()
     inner_sum: float = 0
@@ -156,3 +185,33 @@ def SAH(head_node: BVHNode):
     head_aabb_surface_area = 2 * (x_extent * y_extent + x_extent * z_extent + y_extent * z_extent)
 
     return total_sum / head_aabb_surface_area
+
+def SAH_single_node(parent_node: BVHNode, split_axis: Axis, axis_pos: float):
+    """ Returns the SAH cost of a single split. """
+    parent_node.split(split_axis, axis_pos)
+
+    p_aabb = parent_node.aabb
+    p_x_extent = p_aabb.x_max - p_aabb.x_min
+    p_y_extent = p_aabb.y_max - p_aabb.y_min
+    p_z_extent = p_aabb.z_max - p_aabb.z_min
+    p_surface = 2.0 * (p_x_extent * p_y_extent + p_x_extent * p_z_extent + p_y_extent * p_z_extent)
+
+    l_aabb = parent_node.left_child.aabb
+    l_x_extent = l_aabb.x_max - l_aabb.x_min
+    l_y_extent = l_aabb.y_max - l_aabb.y_min
+    l_z_extent = l_aabb.z_max - l_aabb.z_min
+    l_surface = 2.0 * (l_x_extent * l_y_extent + l_x_extent * l_z_extent + l_y_extent * l_z_extent)
+
+    r_aabb = parent_node.right_child.aabb
+    r_x_extent = r_aabb.x_max - r_aabb.x_min
+    r_y_extent = r_aabb.y_max - r_aabb.y_min
+    r_z_extent = r_aabb.z_max - r_aabb.z_min
+    r_surface = 2.0 * (r_x_extent * r_y_extent + r_x_extent * r_z_extent + r_y_extent * r_z_extent)
+
+    l_prim_count = len(parent_node.left_child.primitives)
+    r_prim_count = len(parent_node.right_child.primitives)
+    
+    parent_node.left_child = None
+    parent_node.right_child = None
+
+    return (((l_surface / p_surface) * l_prim_count) + ((r_surface / p_surface) * r_prim_count)) * C_tri

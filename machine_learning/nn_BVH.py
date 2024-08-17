@@ -1,5 +1,8 @@
+from dataclasses import dataclass
 from nn_AABB import *
 from nn_types import *
+import nn_loss
+import sys
 
 # maybe needed for later if model is implemented
 """
@@ -86,7 +89,6 @@ class BVHNode:
         self.right_child.parent = self
 
         return True
-    
 
     def to_list(self):
         """ Converts the BVH to a list of its nodes separated in inner and leafs. """
@@ -107,3 +109,49 @@ class BVHNode:
             leaf_nodes.append(current_node)
 
         return inner_nodes, leaf_nodes
+    
+def get_all_split_offsets(prims: list[Primitive3], _axis: Axis):
+    axis = _axis.value
+    sorted_prims = sorted(prims, key=lambda prim: np.max(prim[:, axis]))
+    return ([np.max(primitive[:, axis]) for primitive in sorted_prims])[:-1]
+
+        
+def build_greedy_SAH_EPO_tree(parent_node: BVHNode, alpha: float, levels: int):
+    @dataclass
+    class BestSplit:
+        cost: float
+        offset: float
+        axis: Axis
+        left_overlapping: list[Primitive3]
+        right_overlapping: list[Primitive3]
+    
+    @dataclass
+    class NodeOverlapPair:
+        node: BVHNode
+        overlapping_prims: list[Primitive3]
+
+    nodes_hierarchy: list[list[NodeOverlapPair]] = [[] for _ in levels + 1]
+    nodes_hierarchy[0].append(NodeOverlapPair(node=parent_node, overlapping_prims=[]))
+
+    for level in (0, levels):
+        for node_ol_pair in nodes_hierarchy[level]:
+            best_split = BestSplit(cost=sys.float_info.max, offset= -0.5)
+            for axis in Axis:
+                split_offsets = get_all_split_offsets(node_ol_pair.node.primitives, axis)
+
+                for offset in split_offsets:
+                    epo, left_overlapping, right_overlapping = nn_loss.EPO_single_node(\
+                        node_ol_pair.node, axis, offset, node_ol_pair.overlapping_prims)
+                    sah = nn_loss.SAH_single_node(node_ol_pair.node, axis, offset)
+                    cost = (1-alpha) * sah + alpha * epo
+                    
+                    if (cost < best_split.cost):
+                        best_split.cost = cost
+                        best_split.offset = offset
+                        best_split.axis = axis
+                        best_split.left_overlapping = left_overlapping
+                        best_split.right_overlapping = right_overlapping
+            
+            node_ol_pair.node.split(best_split.axis, best_split.offset)
+            nodes_hierarchy[level + 1].append(NodeOverlapPair(node_ol_pair.node.left_child, best_split.left_overlapping))
+            nodes_hierarchy[level + 1].append(NodeOverlapPair(node_ol_pair.node.right_child, best_split.right_overlapping))
