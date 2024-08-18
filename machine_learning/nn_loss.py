@@ -134,13 +134,8 @@ def EPO(head_node: nn_BVH.BVHNode):
     return total_sum / total_surface_area
 
 
-def EPO_single_node(parent_node: nn_BVH.BVHNode, split_axis: Axis, axis_pos: float, p_overlapping_prims: list[Primitive3]=[], parent_node_prims_surface: float=0):
+def EPO_single_node(parent_node: nn_BVH.BVHNode, split_axis: Axis, axis_pos: float, p_overlapping_prims: list[Primitive3]=[], root_prims_surface: float=0):
     parent_node.split(split_axis, axis_pos)
-
-    if len(p_overlapping_prims) == 0:
-        p_surface = parent_node_prims_surface
-    else:
-        p_surface = surface_area(p_overlapping_prims)
 
     l_overlapping_prims = get_prims_laying_inside_node(parent_node.left_child.aabb, p_overlapping_prims)
     l_overlapping_prims.extend(get_prims_laying_inside_node(parent_node.left_child.aabb, parent_node.right_child.primitives))
@@ -156,8 +151,7 @@ def EPO_single_node(parent_node: nn_BVH.BVHNode, split_axis: Axis, axis_pos: flo
     parent_node.left_child = None
     parent_node.right_child = None
 
-    return (((l_surface / p_surface) * l_prim_count) + ((r_surface / p_surface)) * r_prim_count) * C_tri,\
-        l_overlapping_prims, r_overlapping_prims
+    return ((l_surface + r_surface) / root_prims_surface) * C_tri, l_overlapping_prims, r_overlapping_prims
     
 
 def SAH(head_node: nn_BVH.BVHNode):
