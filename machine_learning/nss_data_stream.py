@@ -154,10 +154,12 @@ class scene:
         self.backup_batch_primitives_AABB_lists = copy.deepcopy(self.batch_primitives_AABB_lists)
         self.backup_batch_primitive_clouds = copy.deepcopy(self.batch_primitive_clouds)
 
+
     def reset(self):
         self.backup_batch_primitives_AABB_lists = copy.deepcopy(self.backup_batch_primitives_AABB_lists)
         self.batch_primitive_clouds = copy.deepcopy(self.backup_batch_primitive_clouds)
         self.rng = np.random.default_rng(self.rng_seed)
+
 
     def get_test_dataset(self, dataset_size):
         backup_batch_primitives_AABB_lists = copy.deepcopy(self.batch_primitives_AABB_lists)
@@ -221,6 +223,7 @@ class scene:
         return self.batch_primitive_clouds
 
 
+
 class primitive_cloud_generator:
     def __init__(self, config):
         self.batch_size = config['batch_size']
@@ -262,3 +265,14 @@ class primitive_cloud_generator:
         result = tf.convert_to_tensor(transformed_scenes_batch, dtype=tf.float32)
         result = tf.gather(result, self.coordinates_order, axis=2)
         return result
+    
+    def get_base_scenes(self):
+        result = []
+        for scene in self.scenes:
+            prim_cloud = np.array(scene.backup_batch_primitive_clouds[0]).reshape(1, self.prim_cloud_size, 9)
+            prim_cloud = tf.convert_to_tensor(prim_cloud, dtype=tf.float32)
+            prim_cloud = tf.gather(prim_cloud, self.coordinates_order, axis=2)
+            result.append(prim_cloud)
+
+        return result
+        
