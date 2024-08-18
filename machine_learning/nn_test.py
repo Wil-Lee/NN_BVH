@@ -121,7 +121,7 @@ batch_size = 1
 data_size = 1000000
 loader = DataLoaderFromMeshes(data_size, batch_size, p_mesh, ab)
 
-if 1:
+if 0:
     plotter = pv.Plotter()
     draw_bounding_box(ab, plotter)
     points = np.array([vertex for primitive in primitives for vertex in primitive])
@@ -156,6 +156,12 @@ if 0:
 nodes_to_split: list[BVHNode] = []
 
 head_node = BVHNode(ab, primitives)
+
+if(1):
+    #build_greedy_SAH_EPO_tree_multi_thread(head_node, 0.71, 4)
+    build_greedy_SAH_EPO_tree_single_thread(head_node, 0.71, 4)
+
+
 nodes_to_split.append(head_node)
 
 points = np.array([vertex for primitive in primitives for vertex in primitive])

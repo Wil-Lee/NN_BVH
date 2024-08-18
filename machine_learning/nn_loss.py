@@ -1,5 +1,5 @@
 from nn_types import *
-from nn_BVH import *
+import nn_BVH
 
 def surface_area(primitives: list[Primitive3]):
     """ Returns the total area of all primitives given in the argument list. """
@@ -27,7 +27,7 @@ def surface_area_primitive(prim: Primitive3):
     
     return surface_area
 
-def get_prims_laying_inside_node(aabb: AABB, prims: list[Primitive3]):
+def get_prims_laying_inside_node(aabb: nn_BVH.AABB, prims: list[Primitive3]):
     result = []
     for prim in prims:
         # checks if at least one node of a primitive lays inside the argument node's AABB
@@ -48,18 +48,18 @@ def get_prims_laying_inside_node(aabb: AABB, prims: list[Primitive3]):
     
     return result
 
-def get_external_primitives_laying_inside_node(node: BVHNode) -> list[Primitive3]:
+def get_external_primitives_laying_inside_node(node: nn_BVH.BVHNode) -> list[Primitive3]:
     """ 
     Returns a list of primitives which lay inside the nodes bounding box but are not part of the node or its children.
     Corresponds to (S\Q(n) ∩ n) of the EPO paper.
     """
     if (node.parent is None):
         return []
-    parent: BVHNode = node.parent
+    parent: nn_BVH.BVHNode = node.parent
     # is always an ancestor of the argument node (during first while loop)
-    current_node: BVHNode = node
+    current_node: nn_BVH.BVHNode = node
     # nodes which AABBs overlapped with argument node's AABB 
-    nodes_to_check: list[BVHNode] = []
+    nodes_to_check: list[nn_BVH.BVHNode] = []
 
     # iterate to the root of the BVH and collect all nodes which AABBs overlap with the argument node's AABB
     while parent is not None: # false wegmachen
@@ -115,7 +115,7 @@ C_inn = 1.2
 C_tri = 1.0
 """Computation cost for leaf nodes."""
 
-def EPO(head_node: BVHNode):
+def EPO(head_node: nn_BVH.BVHNode):
     inner_nodes, leaf_nodes = head_node.to_list()
     inner_sum: float = 0
     leaf_sum: float = 0
@@ -134,16 +134,19 @@ def EPO(head_node: BVHNode):
     return total_sum / total_surface_area
 
 
-def EPO_single_node(parent_node: BVHNode, split_axis: Axis, axis_pos: float, p_overlapping_prims: list[Primitive3]=[]):
+def EPO_single_node(parent_node: nn_BVH.BVHNode, split_axis: Axis, axis_pos: float, p_overlapping_prims: list[Primitive3]=[], parent_node_prims_surface: float=0):
     parent_node.split(split_axis, axis_pos)
 
-    if p_overlapping_prims is []:
-        p_overlapping_prims = get_external_primitives_laying_inside_node(parent_node)
+    if len(p_overlapping_prims) == 0:
+        p_surface = parent_node_prims_surface
+    else:
+        p_surface = surface_area(p_overlapping_prims)
 
     l_overlapping_prims = get_prims_laying_inside_node(parent_node.left_child.aabb, p_overlapping_prims)
+    l_overlapping_prims.extend(get_prims_laying_inside_node(parent_node.left_child.aabb, parent_node.right_child.primitives))
     r_overlapping_prims = get_prims_laying_inside_node(parent_node.right_child.aabb, p_overlapping_prims)
+    r_overlapping_prims.extend(get_prims_laying_inside_node(parent_node.right_child.aabb, parent_node.left_child.primitives))
 
-    p_surface = surface_area(p_overlapping_prims)
     l_surface = surface_area(l_overlapping_prims)
     r_surface = surface_area(r_overlapping_prims)
 
@@ -157,7 +160,7 @@ def EPO_single_node(parent_node: BVHNode, split_axis: Axis, axis_pos: float, p_o
         l_overlapping_prims, r_overlapping_prims
     
 
-def SAH(head_node: BVHNode):
+def SAH(head_node: nn_BVH.BVHNode):
     inner_nodes, leaf_nodes = head_node.to_list()
     inner_sum: float = 0
     leaf_sum: float = 0
@@ -186,7 +189,7 @@ def SAH(head_node: BVHNode):
 
     return total_sum / head_aabb_surface_area
 
-def SAH_single_node(parent_node: BVHNode, split_axis: Axis, axis_pos: float):
+def SAH_single_node(parent_node: nn_BVH.BVHNode, split_axis: Axis, axis_pos: float):
     """ Returns the SAH cost of a single split. """
     parent_node.split(split_axis, axis_pos)
 

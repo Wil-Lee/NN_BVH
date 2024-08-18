@@ -1,7 +1,6 @@
 from dataclasses import dataclass
 from nn_AABB import *
 from nn_types import *
-import nn_loss
 import sys
 
 # maybe needed for later if model is implemented
@@ -41,8 +40,7 @@ class BVHNode:
         """ 
         Splits a node into two nodes by projecting the the scene to the split_axis and splitting it at axis_pos.
         
-        Returns true if node is not a leaf
-                otherwise false.
+        Returns true if node is not a leaf, otherwise false.
         """
 
         if self.is_leaf:
@@ -74,7 +72,7 @@ class BVHNode:
 
             # add primitives which crosses the split axis to the left if the part left of the axis 
             # is bigger than the right part, to the right otherwise
-            if axis_pos - min_primitive > max_primitive - axis_pos:
+            if axis_pos - min_primitive >= max_primitive - axis_pos:
                 left_primitives.append(self.primitives[i])
                 continue
             else:
@@ -87,6 +85,10 @@ class BVHNode:
         self.left_child.parent = self
         self.right_child = BVHNode(right_aabb, right_primitives)
         self.right_child.parent = self
+
+        if __debug__:
+            self.left_child.layer = self.layer + 1
+            self.right_child.layer = self.layer + 1
 
         return True
 
@@ -111,47 +113,131 @@ class BVHNode:
         return inner_nodes, leaf_nodes
     
 def get_all_split_offsets(prims: list[Primitive3], _axis: Axis):
-    axis = _axis.value
-    sorted_prims = sorted(prims, key=lambda prim: np.max(prim[:, axis]))
-    return ([np.max(primitive[:, axis]) for primitive in sorted_prims])[:-1]
-
-        
-def build_greedy_SAH_EPO_tree(parent_node: BVHNode, alpha: float, levels: int):
-    @dataclass
-    class BestSplit:
-        cost: float
-        offset: float
-        axis: Axis
-        left_overlapping: list[Primitive3]
-        right_overlapping: list[Primitive3]
+    """ Returns all split offsets which lead to different BVH splits. """
+    def center(prim: Primitive3, axis: int) -> float:
+        min_val = np.min(prim[:, axis])
+        max_val = np.max(prim[:, axis])
+        return (min_val + max_val) / 2
     
-    @dataclass
-    class NodeOverlapPair:
-        node: BVHNode
-        overlapping_prims: list[Primitive3]
+    def next_float(value: float) -> float:
+        return np.nextafter(value, np.inf)
+    
+    axis = _axis.value
+    center_points = np.unique([center(prim, axis) for prim in prims])
+    center_points = [next_float(point) for point in center_points]
+    return sorted(center_points)[:-1]
 
-    nodes_hierarchy: list[list[NodeOverlapPair]] = [[] for _ in levels + 1]
-    nodes_hierarchy[0].append(NodeOverlapPair(node=parent_node, overlapping_prims=[]))
+@dataclass
+class BestSplit:
+    cost: float = None
+    offset: float = None
+    axis: Axis = None
+    left_overlapping: list[Primitive3] = None
+    right_overlapping: list[Primitive3] = None
+    
+@dataclass
+class NodeData:
+    node: BVHNode
+    overlapping_prims: list[Primitive3]
+    prims_surface: float = None
 
-    for level in (0, levels):
-        for node_ol_pair in nodes_hierarchy[level]:
+import nn_loss     
+def build_greedy_SAH_EPO_tree_single_thread(parent_node: BVHNode, alpha: float, levels: int):
+    nodes_hierarchy: list[list[NodeData]] = [[] for _ in range(levels + 1)]
+    nodes_hierarchy[0].append(NodeData(node=parent_node, overlapping_prims=[], prims_surface=nn_loss.surface_area(parent_node.primitives)))
+
+    for level in range(levels):
+        for node_data in nodes_hierarchy[level]:
             best_split = BestSplit(cost=sys.float_info.max, offset= -0.5)
-            for axis in Axis:
-                split_offsets = get_all_split_offsets(node_ol_pair.node.primitives, axis)
+            if not __debug__ or level > 0:
+                for axis in Axis:
+                    split_offsets = get_all_split_offsets(node_data.node.primitives, axis)
 
+                    for o_idx, offset in enumerate(split_offsets):
+                        epo, left_overlapping, right_overlapping = nn_loss.EPO_single_node(\
+                            node_data.node, axis, offset, node_data.overlapping_prims, node_data.prims_surface)
+                        sah = nn_loss.SAH_single_node(node_data.node, axis, offset)
+                        cost = (1-alpha) * sah + alpha * epo
+
+                        if (cost < best_split.cost):
+                            best_split.cost = cost
+                            best_split.offset = offset
+                            best_split.axis = axis
+                            best_split.left_overlapping = left_overlapping
+                            best_split.right_overlapping = right_overlapping
+            elif __debug__:
+                # debug only
+                best_split = BestSplit()
+                best_split.axis = Axis.z
+                best_split.offset = 0.04701263013749959
+                node_data.node.split(best_split.axis, best_split.offset)
+                l_overlapping_prims = nn_loss.get_prims_laying_inside_node(node_data.node.left_child.aabb, [])
+                l_overlapping_prims.extend(nn_loss.get_prims_laying_inside_node(node_data.node.left_child.aabb, node_data.node.right_child.primitives))
+                r_overlapping_prims = nn_loss.get_prims_laying_inside_node(node_data.node.right_child.aabb, [])
+                r_overlapping_prims.extend(nn_loss.get_prims_laying_inside_node(node_data.node.right_child.aabb, node_data.node.left_child.primitives))
+                best_split.left_overlapping = l_overlapping_prims
+                best_split.right_overlapping = r_overlapping_prims
+            node_data.node.split(best_split.axis, best_split.offset)
+            nodes_hierarchy[level + 1].append(NodeData(node_data.node.left_child, best_split.left_overlapping))
+            nodes_hierarchy[level + 1].append(NodeData(node_data.node.right_child, best_split.right_overlapping))
+            if (len(best_split.left_overlapping) == 0):
+                nodes_hierarchy[level + 1][len(nodes_hierarchy[level + 1]) - 2].prims_surface = nn_loss.surface_area(node_data.node.left_child.primitives)
+            if (len(best_split.right_overlapping) == 0):
+                nodes_hierarchy[level + 1][len(nodes_hierarchy[level + 1]) - 1].prims_surface = nn_loss.surface_area(node_data.node.right_child.primitives)
+
+import copy
+from concurrent.futures import ProcessPoolExecutor, as_completed
+from typing import List, Tuple
+
+def compute_cost(task: Tuple[Axis, float, BVHNode, list[Primitive3], float, float]) \
+        -> Tuple[float, Axis, float, List[Primitive3], List[Primitive3]]:
+        axis, offset, node, overlapping_prims, prims_surface, alpha = task
+
+        epo, left_overlapping, right_overlapping = nn_loss.EPO_single_node(
+            node, axis, offset, overlapping_prims, prims_surface)
+        sah = nn_loss.SAH_single_node(node, axis, offset)
+        cost = (1-alpha) * sah + alpha * epo
+        return cost, axis, offset, left_overlapping, right_overlapping
+
+
+def build_greedy_SAH_EPO_tree_multi_thread(parent_node: BVHNode, alpha: float, levels: int):
+    
+    def parallel(node_data: NodeData):
+        best_split = BestSplit(cost=sys.float_info.max, offset=-0.5)
+        
+        with ProcessPoolExecutor() as executor:
+            futures = []
+            tasks = []
+            for axis in Axis:
+                split_offsets = get_all_split_offsets(node_data.node.primitives, axis)
                 for offset in split_offsets:
-                    epo, left_overlapping, right_overlapping = nn_loss.EPO_single_node(\
-                        node_ol_pair.node, axis, offset, node_ol_pair.overlapping_prims)
-                    sah = nn_loss.SAH_single_node(node_ol_pair.node, axis, offset)
-                    cost = (1-alpha) * sah + alpha * epo
-                    
-                    if (cost < best_split.cost):
-                        best_split.cost = cost
-                        best_split.offset = offset
-                        best_split.axis = axis
-                        best_split.left_overlapping = left_overlapping
-                        best_split.right_overlapping = right_overlapping
-            
-            node_ol_pair.node.split(best_split.axis, best_split.offset)
-            nodes_hierarchy[level + 1].append(NodeOverlapPair(node_ol_pair.node.left_child, best_split.left_overlapping))
-            nodes_hierarchy[level + 1].append(NodeOverlapPair(node_ol_pair.node.right_child, best_split.right_overlapping))
+                    # shallow copy intended
+                    tasks.append((axis, offset, copy.copy(node_data.node), node_data.overlapping_prims, node_data.prims_surface, alpha))
+
+            results = executor.map(compute_cost, tasks)
+
+            for result in results:
+                cost, axis, offset, left_overlapping, right_overlapping = result
+                if cost < best_split.cost:
+                    best_split.cost = cost
+                    best_split.offset = offset
+                    best_split.axis = axis
+                    best_split.left_overlapping = left_overlapping
+                    best_split.right_overlapping = right_overlapping
+
+        return best_split
+
+    nodes_hierarchy: list[list[NodeData]] = [[] for _ in range(levels + 1)]
+    nodes_hierarchy[0].append(NodeData(node=parent_node, overlapping_prims=[], prims_surface=nn_loss.surface_area(parent_node.primitives)))
+
+    for level in range(levels):
+        for node_data in nodes_hierarchy[level]:
+            best_split = parallel(node_data)
+    
+            node_data.node.split(best_split.axis, best_split.offset)
+            nodes_hierarchy[level + 1].append(NodeData(node_data.node.left_child, best_split.left_overlapping))
+            nodes_hierarchy[level + 1].append(NodeData(node_data.node.right_child, best_split.right_overlapping))
+            if (len(best_split.left_overlapping) == 0):
+                nodes_hierarchy[level + 1][len(nodes_hierarchy[level + 1]) - 2].prims_surface = nn_loss.surface_area(node_data.node.left_child.primitives)
+            if (len(best_split.right_overlapping) == 0):
+                nodes_hierarchy[level + 1][len(nodes_hierarchy[level + 1]) - 1].prims_surface = nn_loss.surface_area(node_data.node.right_child.primitives)
