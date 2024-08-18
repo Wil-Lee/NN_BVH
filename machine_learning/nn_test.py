@@ -157,7 +157,7 @@ nodes_to_split: list[BVHNode] = []
 
 head_node = BVHNode(ab, primitives)
 
-if(1):
+if(0):
     #build_greedy_SAH_EPO_tree_multi_thread(head_node, 0.71, 4)
     build_greedy_SAH_EPO_tree_single_thread(head_node, 0.71, 4)
 
@@ -172,7 +172,7 @@ mesh = pv.PolyData(points, faces)
 
 #######################################################################################
 level = 0
-show_current_split_level = 1
+show_current_split_level = 0
 while len(nodes_to_split) != 0:
     
     new_nodes = []
@@ -185,6 +185,11 @@ while len(nodes_to_split) != 0:
     print(f"\nStart Splitting nodes on level {level}...")
     total_time = 0
     for i, n in enumerate(nodes_to_split):
+
+        if len(nodes_to_split) > 8:
+            for n in nodes_to_split:
+                n.is_leaf = True
+            break
 
         if n.is_leaf:
             continue
@@ -351,6 +356,7 @@ while len(nodes_to_split) != 0:
     level += 1
 ##################################################################################################
 
+head_node.print_tree()
 
 with bench('Determine external primitives laying inside node'):
     external = get_external_primitives_laying_inside_node(head_node.left_child.right_child)

@@ -33,6 +33,8 @@ class BVHNode:
         self.parent: BVHNode = None
         self.left_child: BVHNode
         self.right_child: BVHNode
+        self.split_dimension: Axis
+        self.split_offset: float
         if __debug__:
             self.layer = 0
 
@@ -85,6 +87,8 @@ class BVHNode:
         self.left_child.parent = self
         self.right_child = BVHNode(right_aabb, right_primitives)
         self.right_child.parent = self
+        self.split_dimension = split_axis
+        self.split_offset = axis_pos
 
         if __debug__:
             self.left_child.layer = self.layer + 1
@@ -111,6 +115,27 @@ class BVHNode:
             leaf_nodes.append(current_node)
 
         return inner_nodes, leaf_nodes
+    
+    def print_tree(self):
+        self.__print__(self)
+    
+    def __print__(self, node, node_index=0, parent_index=None, indent=""):
+        if parent_index is None:
+            parent_str = "Root"
+        else:
+            parent_str = f"Parent: {parent_index}"
+        
+        line_prefix = f"{indent}Node: {node_index}, {parent_str}"
+
+        if node.is_leaf:
+            print(f"{line_prefix} -> Leaf Node")
+        else:
+            print(f"{line_prefix} -> Split on axis {node.split_dimension}, Offset: {node.split_offset}")
+            
+            if node.left_child:
+                self.__print__(node.left_child, node_index * 2 + 1, node_index, indent + "     ")
+            if node.right_child:
+                self.__print__(node.right_child, node_index * 2 + 2, node_index, indent + "     ")
     
 def get_all_split_offsets(prims: list[Primitive3], _axis: Axis):
     """ Returns all split offsets which lead to different BVH splits. """
