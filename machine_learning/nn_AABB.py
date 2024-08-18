@@ -43,6 +43,9 @@ def get_AABB_from_vertices(vertices):
 # Returns the AABB which encloses all primitives given in the argument.
 def get_AABB_from_primitives(primitves):
 
+    if len(primitves) == 0:
+        return AABB(0,0,0,0,0,0)
+
     vertices = []
 
     for p in primitves:
