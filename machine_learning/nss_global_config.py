@@ -75,11 +75,13 @@ epo_config['name'] = buildNetworkName(
 
 epo_config['EPO'] = True
 
+EPO_SAH_alpha = 0.71
 epo_config['weight_fn'] = nss_tree_modules.sah_eval() # TODO: maybe change
 epo_config['pooling_fn'] = nss_tree_modules.pool_treelet_EPO(t, t_isect, 4 if init_config['train_unbalanced'] else 3,
     init_config['norm_factor'],
     beta,
-    i_isect)
+    i_isect,
+    EPO_SAH_alpha)
 
 sah_config = init_config.copy()
 

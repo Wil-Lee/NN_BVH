@@ -645,7 +645,7 @@ def qL_fn_SAH(beta, axis_points, parent_mask, parent_min, parent_max, offset):
 
 
 class pool_treelet_EPO(tf.Module) :
-    def __init__(self, t, t_iscet_cost, num_splits, normFactor, beta, i_isect_cost) :
+    def __init__(self, t, t_iscet_cost, num_splits, normFactor, beta, i_isect_cost, epo_sah_alpha) :
         super(pool_treelet_EPO, self).__init__()
         self.t = t
         self.t_isect_cost = t_iscet_cost
@@ -660,6 +660,7 @@ class pool_treelet_EPO(tf.Module) :
         self.beta = beta
         self.w_eval_SAH = sah_eval()
         self.qL_fn_SAH = qL_fn_SAH
+        self.EPO_SAH_alpha = epo_sah_alpha
 
     @tf.function
     def pool_interior_soft(self, flag, point_clouds,
@@ -672,12 +673,10 @@ class pool_treelet_EPO(tf.Module) :
         Cnode_SAH, Cnode_EPO = self.eval_interior(point_clouds,
             root_bounds, parent_bounds, parent_normal, parent_offset, node_bounds)
         
-        #TODO: Add scene alpha
-        scene_alpha = 0.5
-        Cnode = (1 - scene_alpha) * Cnode_SAH + scene_alpha * Cnode_EPO
+        Cnode = (1 - self.EPO_SAH_alpha) * Cnode_SAH + self.EPO_SAH_alpha * Cnode_EPO
 
         parent_mask = tf.stop_gradient(nss_tree_common.build_mask(point_clouds, parent_bounds))
-        QleafL, QleafR = self.q_eval_SAH(point_clouds, parent_normal, parent_offset, parent_bounds, parent_mask)
+        QleafL, QleafR = self.q_eval(point_clouds, parent_normal, parent_offset, parent_bounds, parent_mask)
         QleafRoot = tf.ones_like(QleafL) * self.normFactor
         Qleaf = QleafRoot * flag[0] + QleafL * flag[1] + QleafR * flag[2] 
         Cleaf = Qleaf * self.w_eval_EPO(root_bounds, node_bounds, point_clouds) # only needed for unbalanced tree
@@ -746,41 +745,39 @@ class pool_treelet_EPO(tf.Module) :
 
         node_mask = tf.stop_gradient(nss_tree_common.build_mask_EPO(point_clouds, node_bounds))
         
-        qL_X_SAH, qR_X_SAH = self.q_eval_SAH(point_clouds, self.nX, offsetX, node_bounds, node_mask)
-        qL_Y_SAH, qR_Y_SAH = self.q_eval_SAH(point_clouds, self.nY, offsetY, node_bounds, node_mask)
-        qL_Z_SAH, qR_Z_SAH = self.q_eval_SAH(point_clouds, self.nZ, offsetZ, node_bounds, node_mask)
+        qL_X, qR_X = self.q_eval(point_clouds, self.nX, offsetX, node_bounds, node_mask)
+        qL_Y, qR_Y = self.q_eval(point_clouds, self.nY, offsetY, node_bounds, node_mask)
+        qL_Z, qR_Z = self.q_eval(point_clouds, self.nZ, offsetZ, node_bounds, node_mask)
         
-        CxL_SAH = qL_X_SAH * self.w_eval_SAH(root_bounds, xL_bounds, point_clouds)
-        CxR_SAH = qR_X_SAH * self.w_eval_SAH(root_bounds, xR_bounds, point_clouds)
-        CyL_SAH = qL_Y_SAH * self.w_eval_SAH(root_bounds, yL_bounds, point_clouds)
-        CyR_SAH = qR_Y_SAH * self.w_eval_SAH(root_bounds, yR_bounds, point_clouds)
-        CzL_SAH = qL_Z_SAH * self.w_eval_SAH(root_bounds, zL_bounds, point_clouds)
-        CzR_SAH = qR_Z_SAH * self.w_eval_SAH(root_bounds, zR_bounds, point_clouds)
+        CxL_SAH = qL_X * self.w_eval_SAH(root_bounds, xL_bounds, point_clouds)
+        CxR_SAH = qR_X * self.w_eval_SAH(root_bounds, xR_bounds, point_clouds)
+        CyL_SAH = qL_Y * self.w_eval_SAH(root_bounds, yL_bounds, point_clouds)
+        CyR_SAH = qR_Y * self.w_eval_SAH(root_bounds, yR_bounds, point_clouds)
+        CzL_SAH = qL_Z * self.w_eval_SAH(root_bounds, zL_bounds, point_clouds)
+        CzR_SAH = qR_Z * self.w_eval_SAH(root_bounds, zR_bounds, point_clouds)
 
         parent_mask = tf.stop_gradient(nss_tree_common.build_mask(point_clouds, parent_bounds))
-        QleafL_SAH, QleafR_SAH = self.q_eval_SAH(point_clouds, parent_normal, parent_offset, parent_bounds, parent_mask)
-        QleafRoot_SAH = tf.zeros_like(qL_X_SAH) * self.normFactor
+        QleafL_SAH, QleafR_SAH = self.q_eval(point_clouds, parent_normal, parent_offset, parent_bounds, parent_mask)
+        QleafRoot_SAH = tf.zeros_like(qL_X) * self.normFactor
         Qleaf_SAH = QleafRoot_SAH * flag[0] + QleafL_SAH * flag[1] + QleafR_SAH * flag[2]
         Cleaf = Qleaf_SAH * self.w_eval_SAH(root_bounds, node_bounds, point_clouds) # only needed for unbalanced tree
-
-
-        CxL_EPO = self.w_eval_EPO(root_bounds, xL_bounds, point_clouds)
-        CxR_EPO = self.w_eval_EPO(root_bounds, xR_bounds, point_clouds)
-        CyL_EPO = self.w_eval_EPO(root_bounds, yL_bounds, point_clouds)
-        CyR_EPO = self.w_eval_EPO(root_bounds, yR_bounds, point_clouds)
-        CzL_EPO = self.w_eval_EPO(root_bounds, zL_bounds, point_clouds)
-        CzR_EPO = self.w_eval_EPO(root_bounds, zR_bounds, point_clouds)
+        
+        CxL_EPO = self.w_eval_EPO(root_bounds, xL_bounds, point_clouds) # * qL_X
+        CxR_EPO = self.w_eval_EPO(root_bounds, xR_bounds, point_clouds) # * qR_X
+        CyL_EPO = self.w_eval_EPO(root_bounds, yL_bounds, point_clouds) # * qL_Y
+        CyR_EPO = self.w_eval_EPO(root_bounds, yR_bounds, point_clouds) # * qR_Y
+        CzL_EPO = self.w_eval_EPO(root_bounds, zL_bounds, point_clouds) # * qL_Z 
+        CzR_EPO = self.w_eval_EPO(root_bounds, zR_bounds, point_clouds) # * qR_Z
         #Cleaf_EPO = (Cnode_EPO / self.p_eval(point_clouds, parent_normal, parent_offset, parent_bounds, node_bounds)) * self.t_isect_cost
 
-        # TODO: Add scene alpha
-        scene_alpha = 0.5
-        Cnode = (1 - scene_alpha) * Cnode_SAH + scene_alpha * Cnode_EPO
-        CxL = (1 - scene_alpha) * CxL_SAH + scene_alpha * CxL_EPO
-        CxR = (1 - scene_alpha) * CxR_SAH + scene_alpha * CxR_EPO
-        CyL = (1 - scene_alpha) * CyL_SAH + scene_alpha * CyL_EPO
-        CyR = (1 - scene_alpha) * CyR_SAH + scene_alpha * CyR_EPO
-        CzL = (1 - scene_alpha) * CzL_SAH + scene_alpha * CzL_EPO
-        CzR = (1 - scene_alpha) * CzR_SAH + scene_alpha * CzR_EPO
+
+        Cnode = (1 - self.EPO_SAH_alpha) * Cnode_SAH + self.EPO_SAH_alpha * Cnode_EPO
+        CxL = (1 - self.EPO_SAH_alpha) * CxL_SAH + self.EPO_SAH_alpha * CxL_EPO
+        CxR = (1 - self.EPO_SAH_alpha) * CxR_SAH + self.EPO_SAH_alpha * CxR_EPO
+        CyL = (1 - self.EPO_SAH_alpha) * CyL_SAH + self.EPO_SAH_alpha * CyL_EPO
+        CyR = (1 - self.EPO_SAH_alpha) * CyR_SAH + self.EPO_SAH_alpha * CyR_EPO
+        CzL = (1 - self.EPO_SAH_alpha) * CzL_SAH + self.EPO_SAH_alpha * CzL_EPO
+        CzR = (1 - self.EPO_SAH_alpha) * CzR_SAH + self.EPO_SAH_alpha* CzR_EPO
         #Cleaf = (1 - scene_alpha) * Cleaf_SAH + scene_alpha * Cleaf_EPO
         
         return Cnode, CxL, CxR, CyL, CyR, CzL, CzR, Cleaf
@@ -790,7 +787,7 @@ class pool_treelet_EPO(tf.Module) :
         return self.i_isect_cost
     
     @tf.function
-    def q_eval_SAH(self, point_clouds, parent_normal, parent_offset, parent_bounds, parent_mask):
+    def q_eval(self, point_clouds, parent_normal, parent_offset, parent_bounds, parent_mask):
         if tf.reduce_all(tf.equal(parent_normal, [1,0,0])):
             axis_points = point_clouds[:,:,0:3]
         elif tf.reduce_all(tf.equal(parent_normal, [0,1,0])):
