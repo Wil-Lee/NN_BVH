@@ -130,7 +130,7 @@ class BVHNode:
         if node.is_leaf:
             print(f"{line_prefix} -> Leaf Node")
         else:
-            print(f"{line_prefix} -> Split on axis {node.split_dimension}, Offset: {node.split_offset}")
+            print(f"{line_prefix} -> {node.split_dimension}, Offset: {node.split_offset}")
             
             if node.left_child:
                 self.__print__(node.left_child, node_index * 2 + 1, node_index, indent + "     ")
