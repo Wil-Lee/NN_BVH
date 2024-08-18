@@ -332,9 +332,6 @@ while len(nodes_to_split) != 0:
             n.is_leaf = True
             
         else: 
-            if __debug__:
-                n.left_child.layer = n.layer + 1
-                n.right_child.layer = n.layer + 1
             new_nodes.append(n.left_child)
             new_nodes.append(n.right_child)
 
