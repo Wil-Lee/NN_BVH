@@ -231,7 +231,7 @@ class q_eval(tf.Module) :
         self.count_fn = qL_fn
         self.beta = beta
 
-    #@tf.function
+    @tf.function
     def __call__(self, point_clouds, parent_normal, parent_offset, parent_bounds, parent_mask) :
         axis_points = tf.einsum('bijk, j -> bik', point_clouds[..., tf.newaxis], parent_normal)
         parent_minmax = tf.einsum('bij, j -> bi', tf.reshape(parent_bounds, [-1, 2, 3]), parent_normal)
@@ -559,7 +559,7 @@ class pool_treelet(tf.Module) :
 ####################################################### EDIT ##################################################################################
 
 
-#@tf.function
+@tf.function
 def prims_intersecting_node(node_bounds, point_cloud):
     """ Returns the primtives which intersect the given node bounds. """
     x1, x2, x3 = tf.unstack(point_cloud[..., :3], axis=-1)
@@ -672,7 +672,7 @@ class pool_treelet_EPO(tf.Module) :
         pred_planes = tf.concat([pred_normal, pred_offset], axis=-1)
         return pred_planes[:, tf.newaxis, :]
 
-    #@tf.function
+    @tf.function
     def get_pred_branch_from_interior(self, cost_xyz, offsets_xyz, subtree_splits) :
         batch_size = tf.shape(cost_xyz)[0]
         diag_eye = tf.eye(num_rows=self.num_splits, batch_shape=[batch_size])
@@ -809,7 +809,7 @@ class pool_treelet_EPO(tf.Module) :
 
         return self.pool_structure_leaves(Cnode, CxL, CxR, CyL, CyR, CzL, CzR, Cleaf, offsetX, offsetY, offsetZ)
     
-    #@tf.function
+    @tf.function
     def pool_interior_hard(self, flag, point_clouds,
         root_bounds, parent_bounds, parent_normal, parent_offset, node_bounds,
         branch_xL, branch_xR, branch_yL, branch_yR, branch_zL, branch_zR,
