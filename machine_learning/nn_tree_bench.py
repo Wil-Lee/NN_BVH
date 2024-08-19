@@ -58,7 +58,7 @@ def build_tree_from_nn_prediction(root_node: nn_BVH.BVHNode, tree_structure: np.
 
     levels = int(math.log2(len(tree_structure) + 1))
     
-    hierachy: list[nn_BVH.BVHNode] = [i for i in range(2 ** (levels + 1))]
+    hierachy: list[nn_BVH.BVHNode] = [-1 for i in range(2 ** (levels + 1))]
     hierachy[0] = root_node
     hierachy_index = 1
     skip_index = []
@@ -72,8 +72,17 @@ def build_tree_from_nn_prediction(root_node: nn_BVH.BVHNode, tree_structure: np.
                 skip_index.append(hierachy_index)
                 skip_index.append(hierachy_index + 1)
         hierachy_index += 2
-    
-    return len(skip_index) > 0 
+
+    for node_opt in hierachy:
+        if node_opt == -1:
+            continue
+        if len(node_opt.primitives) == 0:
+            node_opt.parent.left_child = None
+            node_opt.parent.right_child = None
+            node_opt.parent.is_leaf = True
+            are_splits_valid = False
+    if not are_splits_valid:
+        print("Invalid predicted offsets!")
 
 
 def main():
@@ -102,10 +111,8 @@ def main():
     nn = Model(config)
     
     tree_structure = nn.get_prediction(config=config, scene=scenes[0])
-    is_bvh_valid = build_tree_from_nn_prediction(root_node_nn_prediction, tree_structure)
+    build_tree_from_nn_prediction(root_node_nn_prediction, tree_structure)
 
-    if not is_bvh_valid:
-        print("Invalid predicted offsets!")
 
     with bench("Building tree"):
         nn_BVH.build_greedy_SAH_EPO_tree_multi_thread(root_node_optimal, alpha, levels, use_epo=True)
