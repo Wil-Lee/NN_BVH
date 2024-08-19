@@ -264,13 +264,13 @@ def compute_cost_without_epo(task: Tuple[Axis, float, BVHNode, list[Primitive3],
         return  best_split.cost, best_split.cost, 0, best_split.axis, best_split.offset, [], []
 
 import os
+import math
 
 def build_greedy_SAH_EPO_tree_multi_thread(root_node: BVHNode, alpha: float, levels: int, use_epo: bool=False):
 
     root_surface = nn_loss.surface_area(root_node.primitives)
-    chunk_size = 16
     
-    def parallel(node_data: NodeData):
+    def parallel(node_data: NodeData, chunk_size: int):
         best_split = BestSplit(cost=sys.float_info.max, offset=-0.5)
         
         with ProcessPoolExecutor(max_workers=os.cpu_count()) as executor:
@@ -304,7 +304,8 @@ def build_greedy_SAH_EPO_tree_multi_thread(root_node: BVHNode, alpha: float, lev
 
     for level in range(levels):
         for node_data in nodes_hierarchy[level]:
-            best_split = parallel(node_data)
+            chunk_size = max(16 if use_epo else 32, math.ceil(len(node_data.node.primitives) / os.cpu_count()))
+            best_split = parallel(node_data, chunk_size)
     
             if node_data.node.split(best_split.axis, best_split.offset): 
                 nodes_hierarchy[level + 1].append(NodeData(node_data.node.left_child, best_split.left_overlapping))
