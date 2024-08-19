@@ -224,6 +224,23 @@ class neural_kdtree :
 
         return pred_costs.numpy(), pred_trees, elapsed_time
     
+####################################################### EDIT ################################################################################## 
+    
+    def predict_tree_EPO(self, point_cloud):
+        t0 = time.time()
+        _, pred_trees = self.mModel.predict_step(point_cloud)
+        elapsed_time = (time.time() - t0) * 1000.0
+        
+        pred_trees = pred_trees.numpy()
+        for tree_i in range(pred_trees.shape[0]) :
+            for plane_i in range(pred_trees.shape[1]) :
+                pred_trees[tree_i, plane_i, 4 if self.config['train_unbalanced'] else 3] -= 1.0
+                
+        return pred_trees, elapsed_time
+
+        
+###############################################################################################################################################
+    
     def predict_tree(self, point_clouds, useGreedyInference) :
         input_pc = np.array(point_clouds)
 

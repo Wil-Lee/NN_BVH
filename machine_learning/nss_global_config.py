@@ -6,6 +6,7 @@ import nss_kd_tree
 
 TREE_DATASET_DIR = os.path.join(os.getcwd(), 'machine_learning', 'datasets')
 SCENES_DIR = os.path.join(os.getcwd(), 'machine_learning', 'obj_scenes')
+TREE_DIR =  os.path.join(os.getcwd(), 'machine_learning', 'trees')
 
 # adjustable hyperparameters
 pc_size = 2048
@@ -52,6 +53,7 @@ init_config = {
     'epochs' : epochs,
     'batch_size' : batch_size, 
     'scenes_dir' : SCENES_DIR,
+    'output_tree_dir' : TREE_DIR,
     'batch_sets' : batch_sets_per_scene,
     'test_sets' : test_primitive_clouds_per_scene,
     'EPO' : False

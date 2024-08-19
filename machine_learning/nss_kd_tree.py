@@ -871,6 +871,13 @@ class kd_tree() :
 
     @staticmethod
     def preOrder_to_lvlOrder(maxlevels, pred_planes) :
+        """
+        Tree structure:
+            0 entry: root    node
+            1 entry: root.L  node; 2 entry: root.R
+            3 entry: root.LL node; 4 entry: root.LR; 5 entry: root.RL node; 6 entry: root.RR node
+            ... 
+        """
         root = dummy_node(np.ones((2, 3), dtype=np.float32), 0, None, 'root.')
         root.lvl = maxlevels - 1
 

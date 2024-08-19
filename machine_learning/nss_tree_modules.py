@@ -663,70 +663,26 @@ class pool_treelet_EPO(tf.Module) :
         self.EPO_SAH_alpha = epo_sah_alpha
 
     @tf.function
-    def pool_interior_soft(self, flag, point_clouds,
-        root_bounds, parent_bounds, parent_normal, parent_offset, node_bounds,
-        CxL, CxR, CyL, CyR, CzL, CzR,
-        CxL_leaf, CxR_leaf,
-        CyL_leaf, CyR_leaf,
-        CzL_leaf, CzR_leaf) :
-        
-        Cnode_SAH, Cnode_EPO = self.eval_interior(point_clouds,
-            root_bounds, parent_bounds, parent_normal, parent_offset, node_bounds)
-        
-        Cnode = (1 - self.EPO_SAH_alpha) * Cnode_SAH + self.EPO_SAH_alpha * Cnode_EPO
+    def get_pred_branch_from_leaves(self, cost_xyz, offsets_xyz) :
+        batch_size = tf.shape(cost_xyz)[0]
+        diag_eye = tf.eye(num_rows=self.num_splits, batch_shape=[batch_size])
+        pred_axis = tf.argmin(cost_xyz, axis=1, output_type=tf.int32)
+        pred_normal = tf.gather(diag_eye, pred_axis, axis=1, batch_dims=1)
+        pred_offset = tf.gather(offsets_xyz, pred_axis, axis=1, batch_dims=1)[..., tf.newaxis]
+        pred_planes = tf.concat([pred_normal, pred_offset], axis=-1)
+        return pred_planes[:, tf.newaxis, :]
 
-        parent_mask = tf.stop_gradient(nss_tree_common.build_mask(point_clouds, parent_bounds))
-        QleafL, QleafR = self.q_eval(point_clouds, parent_normal, parent_offset, parent_bounds, parent_mask)
-        QleafRoot = tf.ones_like(QleafL) * self.normFactor
-        Qleaf = QleafRoot * flag[0] + QleafL * flag[1] + QleafR * flag[2] 
-        Cleaf = Qleaf * self.w_eval_EPO(root_bounds, node_bounds, point_clouds) # only needed for unbalanced tree
-        
-        return self.pool_soft(Cnode, CxL, CxR, CyL, CyR, CzL, CzR, Cleaf)
-    
-    @tf.function
-    def eval_interior(self, point_clouds,
-        root_bounds, parent_bounds, parent_normal, parent_offset, node_bounds) :
-        
-        Cnode_EPO = \
-            self.p_eval(point_clouds, parent_normal, parent_offset, parent_bounds, node_bounds) * \
-            self.w_eval_EPO(root_bounds, node_bounds, point_clouds)
-        
-        Cnode_SAH = \
-            self.p_eval(point_clouds, parent_normal, parent_offset, parent_bounds, node_bounds) * \
-            self.w_eval_SAH(root_bounds, node_bounds, point_clouds)
-
-        return Cnode_SAH, Cnode_EPO
-    
-    @tf.function
-    def pool_soft(self, Cnode, CxL, CxR, CyL, CyR, CzL, CzR, Cleaf) :
-        cost_x = Cnode + CxL + CxR
-        cost_y = Cnode + CyL + CyR
-        cost_z = Cnode + CzL + CzR
-        treelet_cost = self.soft_min(cost_x, cost_y, cost_z, Cleaf, self.t)
-        return treelet_cost
-
-    @tf.function
-    def pool_leaves_soft(self, flag, point_clouds,
-        root_bounds, parent_bounds, parent_normal, parent_offset, node_bounds,
-        offsetX, offsetY, offsetZ,
-        xL_bounds, xR_bounds, yL_bounds, yR_bounds, zL_bounds, zR_bounds) :
-        
-        Cnode, CxL, CxR, CyL, CyR, CzL, CzR, Cleaf = self.eval_leaves_EPO(point_clouds, \
-            root_bounds, parent_bounds, parent_normal, parent_offset, node_bounds,
-            offsetX, offsetY, offsetZ,
-            xL_bounds, xR_bounds, yL_bounds, yR_bounds, zL_bounds, zR_bounds,
-            flag)
-        
-        return (self.pool_soft_EPO(Cnode, CxL, CxR, CyL, CyR, CzL, CzR, Cleaf), Cleaf)
-    
-    @tf.function
-    def pool_soft_EPO(self, Cnode, CxL, CxR, CyL, CyR, CzL, CzR, Cleaf) :
-        cost_x = Cnode + CxL + CxR
-        cost_y = Cnode + CyL + CyR
-        cost_z = Cnode + CzL + CzR
-        treelet_cost = self.soft_min(cost_x, cost_y, cost_z, Cleaf, self.t)
-        return treelet_cost
-    
+    #@tf.function
+    def get_pred_branch_from_interior(self, cost_xyz, offsets_xyz, subtree_splits) :
+        batch_size = tf.shape(cost_xyz)[0]
+        diag_eye = tf.eye(num_rows=self.num_splits, batch_shape=[batch_size])
+        pred_axis = tf.argmin(cost_xyz, axis=1, output_type=tf.int32)
+        pred_normal = tf.gather(diag_eye, pred_axis, axis=1, batch_dims=1)
+        pred_offset = tf.gather(offsets_xyz, pred_axis, axis=1, batch_dims=1)[..., tf.newaxis]
+        pred_planes = tf.concat([pred_normal, pred_offset], axis=-1)[:, tf.newaxis, :]
+        pred_splits = tf.gather(subtree_splits, pred_axis, axis=1, batch_dims=1)
+        pred_planes = tf.concat([pred_planes, pred_splits], axis=1)
+        return pred_planes
     
     @tf.function
     def eval_leaves_EPO(self, point_clouds,
@@ -781,6 +737,146 @@ class pool_treelet_EPO(tf.Module) :
         #Cleaf = (1 - scene_alpha) * Cleaf_SAH + scene_alpha * Cleaf_EPO
         
         return Cnode, CxL, CxR, CyL, CyR, CzL, CzR, Cleaf
+
+    @tf.function
+    def eval_interior(self, point_clouds,
+        root_bounds, parent_bounds, parent_normal, parent_offset, node_bounds) :
+        
+        Cnode_EPO = \
+            self.p_eval(point_clouds, parent_normal, parent_offset, parent_bounds, node_bounds) * \
+            self.w_eval_EPO(root_bounds, node_bounds, point_clouds)
+        
+        Cnode_SAH = \
+            self.p_eval(point_clouds, parent_normal, parent_offset, parent_bounds, node_bounds) * \
+            self.w_eval_SAH(root_bounds, node_bounds, point_clouds)
+
+        return Cnode_SAH, Cnode_EPO
+    
+    @tf.function
+    def pool_leaves_soft(self, flag, point_clouds,
+        root_bounds, parent_bounds, parent_normal, parent_offset, node_bounds,
+        offsetX, offsetY, offsetZ,
+        xL_bounds, xR_bounds, yL_bounds, yR_bounds, zL_bounds, zR_bounds) :
+        
+        Cnode, CxL, CxR, CyL, CyR, CzL, CzR, Cleaf = self.eval_leaves_EPO(point_clouds, \
+            root_bounds, parent_bounds, parent_normal, parent_offset, node_bounds,
+            offsetX, offsetY, offsetZ,
+            xL_bounds, xR_bounds, yL_bounds, yR_bounds, zL_bounds, zR_bounds,
+            flag)
+        
+        return (self.pool_soft_EPO(Cnode, CxL, CxR, CyL, CyR, CzL, CzR, Cleaf), Cleaf)
+    
+    @tf.function
+    def pool_interior_soft(self, flag, point_clouds,
+        root_bounds, parent_bounds, parent_normal, parent_offset, node_bounds,
+        CxL, CxR, CyL, CyR, CzL, CzR,
+        CxL_leaf, CxR_leaf,
+        CyL_leaf, CyR_leaf,
+        CzL_leaf, CzR_leaf) :
+        
+        Cnode_SAH, Cnode_EPO = self.eval_interior(point_clouds,
+            root_bounds, parent_bounds, parent_normal, parent_offset, node_bounds)
+        
+        Cnode = (1 - self.EPO_SAH_alpha) * Cnode_SAH + self.EPO_SAH_alpha * Cnode_EPO
+
+        parent_mask = tf.stop_gradient(nss_tree_common.build_mask(point_clouds, parent_bounds))
+        QleafL, QleafR = self.q_eval(point_clouds, parent_normal, parent_offset, parent_bounds, parent_mask)
+        QleafRoot = tf.ones_like(QleafL) * self.normFactor
+        Qleaf = QleafRoot * flag[0] + QleafL * flag[1] + QleafR * flag[2] 
+        Cleaf = Qleaf * self.w_eval_SAH(root_bounds, node_bounds, point_clouds) # only needed for unbalanced tree
+        
+        return self.pool_soft_EPO(Cnode, CxL, CxR, CyL, CyR, CzL, CzR, Cleaf)
+    
+    @tf.function
+    def pool_soft_EPO(self, Cnode, CxL, CxR, CyL, CyR, CzL, CzR, Cleaf) :
+        cost_x = Cnode + CxL + CxR
+        cost_y = Cnode + CyL + CyR
+        cost_z = Cnode + CzL + CzR
+        treelet_cost = self.soft_min(cost_x, cost_y, cost_z, Cleaf, self.t)
+        return treelet_cost
+
+    @tf.function
+    def pool_leaves_hard(self, flag, point_clouds,
+        root_bounds, parent_bounds, parent_normal, parent_offset, node_bounds,
+        offsetX, offsetY, offsetZ,
+        xL_bounds, xR_bounds, yL_bounds, yR_bounds, zL_bounds, zR_bounds) :
+        
+        Cnode, CxL, CxR, CyL, CyR, CzL, CzR, Cleaf = self.eval_leaves_EPO(point_clouds, \
+            root_bounds, parent_bounds, parent_normal, parent_offset, node_bounds,
+            offsetX, offsetY, offsetZ,
+            xL_bounds, xR_bounds, yL_bounds, yR_bounds, zL_bounds, zR_bounds,
+            flag)
+
+        return self.pool_structure_leaves(Cnode, CxL, CxR, CyL, CyR, CzL, CzR, Cleaf, offsetX, offsetY, offsetZ)
+    
+    #@tf.function
+    def pool_interior_hard(self, flag, point_clouds,
+        root_bounds, parent_bounds, parent_normal, parent_offset, node_bounds,
+        branch_xL, branch_xR, branch_yL, branch_yR, branch_zL, branch_zR,
+        offsetX, offsetY, offsetZ) :
+        
+        Cnode_SAH, Cnode_EPO = self.eval_interior(point_clouds,
+            root_bounds, parent_bounds, parent_normal, parent_offset, node_bounds)
+        
+        Cnode = (1 - self.EPO_SAH_alpha) * Cnode_SAH + self.EPO_SAH_alpha * Cnode_EPO
+
+
+        parent_mask = tf.stop_gradient(nss_tree_common.build_mask(point_clouds, parent_bounds))
+        if len(parent_offset) == 1:
+            QleafL = tf.cast(tf.shape(point_clouds)[1], tf.float32)
+            QleafR = 0.0
+        else:
+            QleafL, QleafR = self.q_eval(point_clouds, parent_normal, parent_offset, parent_bounds, parent_mask)
+        QleafRoot = tf.ones_like(QleafL) * self.normFactor
+        Qleaf = QleafRoot * flag[0] + QleafL * flag[1] + QleafR * flag[2]
+        Cleaf = Qleaf * self.w_eval_SAH(root_bounds, node_bounds, point_clouds)
+
+        return self.pool_structure_interior(Cnode,
+            branch_xL, branch_xR, branch_yL, branch_yR, branch_zL, branch_zR,
+            Cleaf, offsetX, offsetY, offsetZ)
+    
+    @tf.function
+    def pool_structure_leaves(self, Cnode, CxL, CxR, CyL, CyR, CzL, CzR, Cleaf, offsetX, offsetY, offsetZ) :
+        cost_x = Cnode + CxL + CxR
+        cost_y = Cnode + CyL + CyR
+        cost_z = Cnode + CzL + CzR
+        cost_xyz, min_cost = self.hard_min(cost_x, cost_y, cost_z, Cleaf)
+        return min_cost, \
+            self.get_pred_branch_from_leaves(cost_xyz,
+                tf.concat([offsetX[2], offsetY[2], offsetZ[2], tf.ones_like(offsetZ[2])], axis=-1))
+    
+   # @tf.function
+    def pool_structure_interior(self, Cnode,
+        branch_xL, branch_xR, branch_yL, branch_yR, branch_zL, branch_zR,
+        Cleaf, offsetX, offsetY, offsetZ) :
+
+        CxL, planes_xL = branch_xL
+        CxR, planes_xR = branch_xR
+        CyL, planes_yL = branch_yL
+        CyR, planes_yR = branch_yR
+        CzL, planes_zL = branch_zL
+        CzR, planes_zR = branch_zR
+
+        plane_x = tf.concat([planes_xL, planes_xR], axis=1)
+        plane_y = tf.concat([planes_yL, planes_yR], axis=1)
+        plane_z = tf.concat([planes_zL, planes_zR], axis=1)
+
+        split_planes = tf.concat([
+            plane_x[:, tf.newaxis, ...],
+            plane_y[:, tf.newaxis, ...],
+            plane_z[:, tf.newaxis, ...],
+            ], axis=1)
+
+        cost_x = Cnode + CxL + CxR
+        cost_y = Cnode + CyL + CyR
+        cost_z = Cnode + CzL + CzR
+        # Cleaf is ignored
+        cost_xyz, min_cost = self.hard_min(cost_x, cost_y, cost_z, Cleaf)
+
+        return min_cost, \
+            self.get_pred_branch_from_interior(cost_xyz,
+                tf.concat([offsetX[2], offsetY[2], offsetZ[2], tf.ones_like(offsetZ[2])], axis=-1),
+                split_planes)
 
     @tf.function
     def p_eval(self, point_clouds, parent_normal, parent_offset, parent_bounds, bounds) :
