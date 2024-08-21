@@ -883,13 +883,34 @@ class pool_treelet_EPO(tf.Module) :
         return self.i_isect_cost
     
     @tf.function
-    def q_eval(self, point_clouds, parent_normal, parent_offset, parent_bounds, parent_mask):
-        if tf.reduce_all(tf.equal(parent_normal, [1,0,0])):
-            axis_points = point_clouds[:,:,0:3]
-        elif tf.reduce_all(tf.equal(parent_normal, [0,1,0])):
-            axis_points = point_clouds[:,:,3:6]
-        else:
-            axis_points = point_clouds[:,:,6:9]
+    def get_axis_points(self, primitive_cloud, parent_normal):
+        parent_normal_expanded = tf.repeat(parent_normal, repeats=3)
+        masked_primitives = tf.multiply(primitive_cloud, parent_normal_expanded)
+        x1_mask = tf.constant([1,0,0,0,0,0,0,0,0], dtype=tf.float32)
+        x2_mask = tf.constant([0,1,0,0,0,0,0,0,0], dtype=tf.float32)
+        x3_mask = tf.constant([0,0,1,0,0,0,0,0,0], dtype=tf.float32)
+        y1_mask = tf.constant([0,0,0,1,0,0,0,0,0], dtype=tf.float32)
+        y2_mask = tf.constant([0,0,0,0,1,0,0,0,0], dtype=tf.float32)
+        y3_mask = tf.constant([0,0,0,0,0,1,0,0,0], dtype=tf.float32)
+        z1_mask = tf.constant([0,0,0,0,0,0,1,0,0], dtype=tf.float32)
+        z2_mask = tf.constant([0,0,0,0,0,0,0,1,0], dtype=tf.float32)
+        z3_mask = tf.constant([0,0,0,0,0,0,0,0,1], dtype=tf.float32)
+
+        p1 = tf.expand_dims(tf.einsum('bij, j -> bi', masked_primitives, x1_mask), axis=-1) \
+            + tf.expand_dims(tf.einsum('bij, j -> bi', masked_primitives, y1_mask), axis=-1)\
+            + tf.expand_dims(tf.einsum('bij, j -> bi', masked_primitives, z1_mask), axis=-1)
+        p2 = tf.expand_dims(tf.einsum('bij, j -> bi', masked_primitives, x2_mask), axis=-1) \
+            + tf.expand_dims(tf.einsum('bij, j -> bi', masked_primitives, y2_mask), axis=-1)\
+            + tf.expand_dims(tf.einsum('bij, j -> bi', masked_primitives, z2_mask), axis=-1)
+        p3 = tf.expand_dims(tf.einsum('bij, j -> bi', masked_primitives, x3_mask), axis=-1) \
+            + tf.expand_dims(tf.einsum('bij, j -> bi', masked_primitives, y3_mask), axis=-1)\
+            + tf.expand_dims(tf.einsum('bij, j -> bi', masked_primitives, z3_mask), axis=-1)
+
+        return tf.concat([p1, p2, p3], axis=-1)
+    
+    @tf.function
+    def q_eval(self, primitive_cloud, parent_normal, parent_offset, parent_bounds, parent_mask):
+        axis_points = self.get_axis_points(primitive_cloud, parent_normal)      
 
         parent_minmax = tf.einsum('bij, j -> bi', tf.reshape(parent_bounds, [-1, 2, 3]), parent_normal)
         N = tf.stop_gradient(tf.reduce_sum(parent_mask, axis=1))
