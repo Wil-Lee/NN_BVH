@@ -886,25 +886,10 @@ class pool_treelet_EPO(tf.Module) :
     def get_axis_points(self, primitive_cloud, parent_normal):
         parent_normal_expanded = tf.repeat(parent_normal, repeats=3)
         masked_primitives = tf.multiply(primitive_cloud, parent_normal_expanded)
-        x1_mask = tf.constant([1,0,0,0,0,0,0,0,0], dtype=tf.float32)
-        x2_mask = tf.constant([0,1,0,0,0,0,0,0,0], dtype=tf.float32)
-        x3_mask = tf.constant([0,0,1,0,0,0,0,0,0], dtype=tf.float32)
-        y1_mask = tf.constant([0,0,0,1,0,0,0,0,0], dtype=tf.float32)
-        y2_mask = tf.constant([0,0,0,0,1,0,0,0,0], dtype=tf.float32)
-        y3_mask = tf.constant([0,0,0,0,0,1,0,0,0], dtype=tf.float32)
-        z1_mask = tf.constant([0,0,0,0,0,0,1,0,0], dtype=tf.float32)
-        z2_mask = tf.constant([0,0,0,0,0,0,0,1,0], dtype=tf.float32)
-        z3_mask = tf.constant([0,0,0,0,0,0,0,0,1], dtype=tf.float32)
 
-        p1 = tf.expand_dims(tf.einsum('bij, j -> bi', masked_primitives, x1_mask), axis=-1) \
-            + tf.expand_dims(tf.einsum('bij, j -> bi', masked_primitives, y1_mask), axis=-1)\
-            + tf.expand_dims(tf.einsum('bij, j -> bi', masked_primitives, z1_mask), axis=-1)
-        p2 = tf.expand_dims(tf.einsum('bij, j -> bi', masked_primitives, x2_mask), axis=-1) \
-            + tf.expand_dims(tf.einsum('bij, j -> bi', masked_primitives, y2_mask), axis=-1)\
-            + tf.expand_dims(tf.einsum('bij, j -> bi', masked_primitives, z2_mask), axis=-1)
-        p3 = tf.expand_dims(tf.einsum('bij, j -> bi', masked_primitives, x3_mask), axis=-1) \
-            + tf.expand_dims(tf.einsum('bij, j -> bi', masked_primitives, y3_mask), axis=-1)\
-            + tf.expand_dims(tf.einsum('bij, j -> bi', masked_primitives, z3_mask), axis=-1)
+        p1 = masked_primitives[:,:,0:1] + masked_primitives[:,:,3:4] + masked_primitives[:,:,6:7]
+        p2 = masked_primitives[:,:,1:2] + masked_primitives[:,:,4:5] + masked_primitives[:,:,7:8]
+        p3 = masked_primitives[:,:,2:3] + masked_primitives[:,:,5:6] + masked_primitives[:,:,8:9]
 
         return tf.concat([p1, p2, p3], axis=-1)
     
