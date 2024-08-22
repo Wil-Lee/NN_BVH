@@ -1034,8 +1034,8 @@ def wL_fn_EPO(node_bounds, node_min, node_max, beta, axis_points, parent_mask, p
         upstream_grad = tf.einsum('bi, bi -> bi', upstream_grad, tf.cast(node_min >= parent_min, tf.float32))
         upstream_grad = tf.einsum('bi, bi -> bi', upstream_grad, tf.cast(node_max <= parent_max, tf.float32))
 
-        upstream_grad_max = upstream_grad * 0
-        upstream_grad_min = upstream_grad * 0
+        upstream_grad_max = tf.zeros_like(upstream_grad)
+        upstream_grad_min = tf.zeros_like(upstream_grad)
         if is_left_child:
             # return for node_max
             upstream_grad_max = upstream_grad
