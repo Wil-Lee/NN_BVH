@@ -812,7 +812,7 @@ class pool_treelet_EPO(tf.Module) :
             self.get_pred_branch_from_leaves(cost_xyz,
                 tf.concat([offsetX[2], offsetY[2], offsetZ[2], tf.ones_like(offsetZ[2])], axis=-1))
     
-   # @tf.function
+    @tf.function
     def pool_structure_interior(self, Cnode,
         branch_xL, branch_xR, branch_yL, branch_yR, branch_zL, branch_zR,
         Cleaf, offsetX, offsetY, offsetZ) :
@@ -887,77 +887,77 @@ class pool_treelet_EPO(tf.Module) :
             parent_min=parent_minmax[..., 0:1],
             parent_max=parent_minmax[..., 1:2],
             primitive_cloud=primitive_cloud)[0]
+    
+
+@tf.function
+def get_prims_intersecting_node_mask(node_bounds, parent_mask, primitive_cloud):
+    """ Returns the primtives which intersect the given node bounds. """
+    x1, x2, x3 = tf.unstack(primitive_cloud[..., :3], axis=-1)
+    y1, y2, y3 = tf.unstack(primitive_cloud[..., 3:6], axis=-1) 
+    z1, z2, z3 = tf.unstack(primitive_cloud[..., 6:9], axis=-1)
+
+    x_bmin = node_bounds[..., 0:1]
+    y_bmin = node_bounds[..., 1:2]
+    z_bmin = node_bounds[..., 2:3]
+    x_bmax = node_bounds[..., 3:4]
+    y_bmax = node_bounds[..., 4:5]
+    z_bmax = node_bounds[..., 5:6]
+
+    x1_in_bounds = tf.logical_and(x1 >= x_bmin, x1 <= x_bmax)
+    x2_in_bounds = tf.logical_and(x2 >= x_bmin, x2 <= x_bmax)
+    x3_in_bounds = tf.logical_and(x3 >= x_bmin, x3 <= x_bmax)
+
+    y1_in_bounds = tf.logical_and(y1 >= y_bmin, y1 <= y_bmax)
+    y2_in_bounds = tf.logical_and(y2 >= y_bmin, y2 <= y_bmax)
+    y3_in_bounds = tf.logical_and(y3 >= y_bmin, y3 <= y_bmax)
+
+    z1_in_bounds = tf.logical_and(z1 >= z_bmin, z1 <= z_bmax)
+    z2_in_bounds = tf.logical_and(z2 >= z_bmin, z2 <= z_bmax)
+    z3_in_bounds = tf.logical_and(z3 >= z_bmin, z3 <= z_bmax)
+
+    point1_in_bounds = tf.logical_and(tf.logical_and(x1_in_bounds, y1_in_bounds), z1_in_bounds)
+    point2_in_bounds = tf.logical_and(tf.logical_and(x2_in_bounds, y2_in_bounds), z2_in_bounds)
+    point3_in_bounds = tf.logical_and(tf.logical_and(x3_in_bounds, y3_in_bounds), z3_in_bounds)
+
+    at_least_one_point_inside = tf.logical_or(tf.logical_or(point1_in_bounds, point2_in_bounds), point3_in_bounds)
+    at_least_one_point_outside = tf.logical_not(tf.logical_and(tf.logical_and(point1_in_bounds, point2_in_bounds), point3_in_bounds))
+
+    total_prims_intersecting_node = tf.cast(tf.expand_dims(tf.logical_and(at_least_one_point_inside, at_least_one_point_outside), axis=-1), tf.float32)
+
+    prims_in_sibling_node_mask = tf.multiply(total_prims_intersecting_node, parent_mask)
+    prims_outside_sibling_intersecting_node_mask = total_prims_intersecting_node - prims_in_sibling_node_mask 
+
+    points_inside_node_mask = tf.concat([tf.cast(point1_in_bounds[..., tf.newaxis], tf.float32), \
+                                            tf.cast(point2_in_bounds[..., tf.newaxis], tf.float32), \
+                                            tf.cast(point3_in_bounds[..., tf.newaxis], tf.float32)], axis=-1)
+    
+    # what a name ;)
+    prims_outside_sibling_intersecting_node_inside_points = tf.einsum('bij, bik -> bij', points_inside_node_mask,\
+                                                                        prims_outside_sibling_intersecting_node_mask)
+
+    return total_prims_intersecting_node, prims_in_sibling_node_mask, prims_outside_sibling_intersecting_node_inside_points 
+
+@tf.function
+def surface_prims_EPO(prims):
+    P1 = tf.stack([prims[:, :, 0], prims[:, :, 3], prims[:, :, 6]], axis=-1)
+    P2 = tf.stack([prims[:, :, 1], prims[:, :, 4], prims[:, :, 7]], axis=-1)
+    P3 = tf.stack([prims[:, :, 2], prims[:, :, 5], prims[:, :, 8]], axis=-1)
+    
+    AB = P2 - P1
+    AC = P3 - P1
+    
+    u = tf.linalg.cross(AB, AC)
+    prims_surfaces = tf.expand_dims(tf.norm(u, axis=-1), axis=-1)
+    surface_area = tf.reduce_sum(prims_surfaces, axis=1)
+    
+    surface_area *= 0.5
+    
+    return surface_area
 
 
 @tf.function
 @tf.custom_gradient
 def wL_fn_EPO(node_bounds, node_min, node_max, beta, axis_points, parent_mask, parent_min, parent_max, primitive_cloud):
-
-    @tf.function
-    def surface_prims_EPO(prims):
-        P1 = tf.stack([prims[:, :, 0], prims[:, :, 3], prims[:, :, 6]], axis=-1)
-        P2 = tf.stack([prims[:, :, 1], prims[:, :, 4], prims[:, :, 7]], axis=-1)
-        P3 = tf.stack([prims[:, :, 2], prims[:, :, 5], prims[:, :, 8]], axis=-1)
-        
-        AB = P2 - P1
-        AC = P3 - P1
-        
-        u = tf.linalg.cross(AB, AC)
-        prims_surfaces = tf.expand_dims(tf.norm(u, axis=-1), axis=-1)
-        surface_area = tf.reduce_sum(prims_surfaces, axis=1)
-        
-        surface_area *= 0.5
-        
-        return surface_area
-        
-    @tf.function
-    def get_prims_intersecting_node_mask(node_bounds, parent_mask, primitive_cloud):
-        """ Returns the primtives which intersect the given node bounds. """
-        x1, x2, x3 = tf.unstack(primitive_cloud[..., :3], axis=-1)
-        y1, y2, y3 = tf.unstack(primitive_cloud[..., 3:6], axis=-1) 
-        z1, z2, z3 = tf.unstack(primitive_cloud[..., 6:9], axis=-1)
-
-        x_bmin = node_bounds[..., 0:1]
-        y_bmin = node_bounds[..., 1:2]
-        z_bmin = node_bounds[..., 2:3]
-        x_bmax = node_bounds[..., 3:4]
-        y_bmax = node_bounds[..., 4:5]
-        z_bmax = node_bounds[..., 5:6]
-
-        x1_in_bounds = tf.logical_and(x1 >= x_bmin, x1 <= x_bmax)
-        x2_in_bounds = tf.logical_and(x2 >= x_bmin, x2 <= x_bmax)
-        x3_in_bounds = tf.logical_and(x3 >= x_bmin, x3 <= x_bmax)
-
-        y1_in_bounds = tf.logical_and(y1 >= y_bmin, y1 <= y_bmax)
-        y2_in_bounds = tf.logical_and(y2 >= y_bmin, y2 <= y_bmax)
-        y3_in_bounds = tf.logical_and(y3 >= y_bmin, y3 <= y_bmax)
-
-        z1_in_bounds = tf.logical_and(z1 >= z_bmin, z1 <= z_bmax)
-        z2_in_bounds = tf.logical_and(z2 >= z_bmin, z2 <= z_bmax)
-        z3_in_bounds = tf.logical_and(z3 >= z_bmin, z3 <= z_bmax)
-
-        point1_in_bounds = tf.logical_and(tf.logical_and(x1_in_bounds, y1_in_bounds), z1_in_bounds)
-        point2_in_bounds = tf.logical_and(tf.logical_and(x2_in_bounds, y2_in_bounds), z2_in_bounds)
-        point3_in_bounds = tf.logical_and(tf.logical_and(x3_in_bounds, y3_in_bounds), z3_in_bounds)
-
-        at_least_one_point_inside = tf.logical_or(tf.logical_or(point1_in_bounds, point2_in_bounds), point3_in_bounds)
-        at_least_one_point_outside = tf.logical_not(tf.logical_and(tf.logical_and(point1_in_bounds, point2_in_bounds), point3_in_bounds))
-
-        total_prims_intersecting_node = tf.cast(tf.expand_dims(tf.logical_and(at_least_one_point_inside, at_least_one_point_outside), axis=-1), tf.float32)
-
-        prims_in_sibling_node_mask = tf.multiply(total_prims_intersecting_node, parent_mask)
-        prims_outside_sibling_intersecting_node_mask = total_prims_intersecting_node - prims_in_sibling_node_mask 
-
-        points_inside_node_mask = tf.concat([tf.cast(point1_in_bounds[..., tf.newaxis], tf.float32), \
-                                             tf.cast(point2_in_bounds[..., tf.newaxis], tf.float32), \
-                                             tf.cast(point3_in_bounds[..., tf.newaxis], tf.float32)], axis=-1)
-        
-        # what a name ;)
-        prims_outside_sibling_intersecting_node_inside_points = tf.einsum('bij, bik -> bij', points_inside_node_mask,\
-                                                                           prims_outside_sibling_intersecting_node_mask)
-
-        return total_prims_intersecting_node, prims_in_sibling_node_mask, prims_outside_sibling_intersecting_node_inside_points 
-    
 
     prims_isect_node_mask, prims_in_sibling_node_mask, prims_outside_sibling_intersecting_node_inside_points_mask = get_prims_intersecting_node_mask(\
                                                                                                             node_bounds, parent_mask, primitive_cloud)
@@ -966,48 +966,56 @@ def wL_fn_EPO(node_bounds, node_min, node_max, beta, axis_points, parent_mask, p
     surface_intersecting_prims = surface_prims_EPO(intersecting_prims)
 
     @tf.function
-    def next_step(is_left_child):
+    def next_step_left_child():
         axis_points_in_sibling = tf.einsum('bij, bik -> bij', axis_points, prims_in_sibling_node_mask)
         # only keeps axis values of primitive points which acutally lay inside the bounds -> outside points are set to 0
         axis_points_out_sib_iscet_node_inside_points = axis_points * prims_outside_sibling_intersecting_node_inside_points_mask
 
         max_axis_point = tf.reduce_max(axis_points)
 
-        if is_left_child:
-            mins_from_sibling = tf.reduce_min(axis_points_in_sibling, axis=2, keepdims=True)
+        mins_from_sibling = tf.reduce_min(axis_points_in_sibling, axis=2, keepdims=True)
 
-            # needed to eliminate 0's for min reduction
-            inverse_prims_outside_sibling_intersecting_node_inside_points_mask = (prims_outside_sibling_intersecting_node_inside_points_mask - 1) * (-1)
-            axis_points_out_sib_iscet_node_inside_points += inverse_prims_outside_sibling_intersecting_node_inside_points_mask * max_axis_point
+        # needed to eliminate 0's for min reduction
+        inverse_prims_outside_sibling_intersecting_node_inside_points_mask = (prims_outside_sibling_intersecting_node_inside_points_mask - 1) * (-1)
+        axis_points_out_sib_iscet_node_inside_points += inverse_prims_outside_sibling_intersecting_node_inside_points_mask * max_axis_point
 
-            temp_mins_from_out_sibling = tf.reduce_min(axis_points_out_sib_iscet_node_inside_points, axis=2, keepdims=True)
-            prims_outside_sibling_intersecting_node_mask = tf.reduce_sum(prims_outside_sibling_intersecting_node_inside_points_mask, axis=-1, keepdims=True)
-            prims_outside_sibling_intersecting_node_mask = tf.cast(prims_outside_sibling_intersecting_node_mask >= 1, tf.float32)
-            mins_from_out_sibling = tf.einsum('bij, bik -> bij', temp_mins_from_out_sibling, prims_outside_sibling_intersecting_node_mask)
+        temp_mins_from_out_sibling = tf.reduce_min(axis_points_out_sib_iscet_node_inside_points, axis=2, keepdims=True)
+        prims_outside_sibling_intersecting_node_mask = tf.reduce_sum(prims_outside_sibling_intersecting_node_inside_points_mask, axis=-1, keepdims=True)
+        prims_outside_sibling_intersecting_node_mask = tf.cast(prims_outside_sibling_intersecting_node_mask >= 1, tf.float32)
+        mins_from_out_sibling = tf.einsum('bij, bik -> bij', temp_mins_from_out_sibling, prims_outside_sibling_intersecting_node_mask)
 
-            # mins are all minimum (in split dimension) points from primitives which intersects the current node's bounds
-            mins = mins_from_sibling + mins_from_out_sibling
+        # mins are all minimum (in split dimension) points from primitives which intersects the current node's bounds
+        mins = mins_from_sibling + mins_from_out_sibling
 
-            surface_reduction_offsets = tf.reduce_max(mins, axis=1)
-            surface_reduction_offsets_prims_mask = tf.cast(tf.equal(surface_reduction_offsets[:, tf.newaxis, :], mins), tf.float32)
+        surface_reduction_offsets = tf.reduce_max(mins, axis=1)
+        surface_reduction_offsets_prims_mask = tf.cast(tf.equal(surface_reduction_offsets[:, tf.newaxis, :], mins), tf.float32)
 
-            difference_quotient_numerator = surface_prims_EPO(primitive_cloud * surface_reduction_offsets_prims_mask)
-            difference_quotient_denominator = node_max - surface_reduction_offsets
-            
-        else: # right_child
-            maxs_from_sibling = tf.reduce_max(axis_points_in_sibling, axis=2, keepdims=True)
-            maxs_from_out_sibling = tf.reduce_max(axis_points_out_sib_iscet_node_inside_points, axis=2, keepdims=True)
-            maxs = maxs_from_sibling + maxs_from_out_sibling
+        difference_quotient_numerator = surface_prims_EPO(primitive_cloud * surface_reduction_offsets_prims_mask)
+        difference_quotient_denominator = node_max - surface_reduction_offsets
 
-            maxs_transformed_for_min_reduction = (prims_isect_node_mask - 1) * (-max_axis_point)
-            maxs_transformed_for_min_reduction = maxs_transformed_for_min_reduction + maxs
-            surface_reduction_offsets = tf.reduce_min(maxs_transformed_for_min_reduction, axis=1)
-            surface_reduction_offsets_prims_mask = tf.cast(tf.equal(surface_reduction_offsets[:, tf.newaxis, :], maxs), tf.float32)
+        return difference_quotient_numerator, difference_quotient_denominator
 
-            # swap of f(b) = (surface_intersecting_prims - surface_reduction) with f(a) = surface_intersecting_prims intended! 
-            # -> swap direction of gradient because gradient would point to local minimum otherwise! (difference quotient = (f(b) - f(a)) / (b - a) )
-            difference_quotient_numerator = surface_prims_EPO(primitive_cloud * surface_reduction_offsets_prims_mask)
-            difference_quotient_denominator = surface_reduction_offsets - node_min
+    @tf.function
+    def next_step_right_child():
+        axis_points_in_sibling = tf.einsum('bij, bik -> bij', axis_points, prims_in_sibling_node_mask)
+        # only keeps axis values of primitive points which acutally lay inside the bounds -> outside points are set to 0
+        axis_points_out_sib_iscet_node_inside_points = axis_points * prims_outside_sibling_intersecting_node_inside_points_mask
+
+        max_axis_point = tf.reduce_max(axis_points)        
+        
+        maxs_from_sibling = tf.reduce_max(axis_points_in_sibling, axis=2, keepdims=True)
+        maxs_from_out_sibling = tf.reduce_max(axis_points_out_sib_iscet_node_inside_points, axis=2, keepdims=True)
+        maxs = maxs_from_sibling + maxs_from_out_sibling
+
+        maxs_transformed_for_min_reduction = (prims_isect_node_mask - 1) * (-max_axis_point)
+        maxs_transformed_for_min_reduction = maxs_transformed_for_min_reduction + maxs
+        surface_reduction_offsets = tf.reduce_min(maxs_transformed_for_min_reduction, axis=1)
+        surface_reduction_offsets_prims_mask = tf.cast(tf.equal(surface_reduction_offsets[:, tf.newaxis, :], maxs), tf.float32)
+
+        # swap of f(b) = (surface_intersecting_prims - surface_reduction) with f(a) = surface_intersecting_prims intended! 
+        # -> swap direction of gradient because gradient would point to local minimum otherwise! (difference quotient = (f(b) - f(a)) / (b - a) )
+        difference_quotient_numerator = surface_prims_EPO(primitive_cloud * surface_reduction_offsets_prims_mask)
+        difference_quotient_denominator = surface_reduction_offsets - node_min
 
         return difference_quotient_numerator, difference_quotient_denominator
     
@@ -1016,7 +1024,7 @@ def wL_fn_EPO(node_bounds, node_min, node_max, beta, axis_points, parent_mask, p
         """ Custom gradient: Defined by the surface of the primitive(s) which are no longer intersecting the node when 
             reducing the node's AABB extent by moving the newly calculated bound inwards. """
         is_left_child = (node_min <= parent_min)[0]
-        difference_quotient_numerator, difference_quotient_denominator = next_step(is_left_child)
+        difference_quotient_numerator, difference_quotient_denominator = tf.cond(is_left_child, next_step_left_child, next_step_right_child)
         slope = tf.math.divide_no_nan(difference_quotient_numerator, difference_quotient_denominator)
         stepGrad = tf.clip_by_value(slope, 0.0, 1.0 / 0.0001)
 
@@ -1025,12 +1033,16 @@ def wL_fn_EPO(node_bounds, node_min, node_max, beta, axis_points, parent_mask, p
         # adapt here:
         upstream_grad = tf.einsum('bi, bi -> bi', upstream_grad, tf.cast(node_min >= parent_min, tf.float32))
         upstream_grad = tf.einsum('bi, bi -> bi', upstream_grad, tf.cast(node_max <= parent_max, tf.float32))
+
+        upstream_grad_max = upstream_grad * 0
+        upstream_grad_min = upstream_grad * 0
         if is_left_child:
             # return for node_max
-            return None, None, upstream_grad, None, None, None, None, None, None
+            upstream_grad_max = upstream_grad
         else:
             # return for node_min
-            return None, upstream_grad, None, None, None, None, None, None, None
+            upstream_grad_min = upstream_grad
+        return None, upstream_grad_min, upstream_grad_max, None, None, None, None, None, None
 
     # 0.5 -> approximation of primitives surfaces which acutally lay inside the volume
     return 0.5 * (surface_intersecting_prims / surface_prims_EPO(primitive_cloud)), grad
