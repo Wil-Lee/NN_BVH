@@ -285,7 +285,7 @@ def qL_fn(beta, axis_points, parent_mask, parent_min, parent_max, offset) :
         upstream_grad = stepGrad
         # combines the local gradient with the upstream gradient
         upstream_grad = tf.einsum('bi, bi -> bi', upstream, upstream_grad)
-        # masks out all upstream values of points which are not inside the parent bounds
+        # masks out all upstream values with invalid offset
         upstream_grad = tf.einsum('bi, bi -> bi', upstream_grad, tf.cast(offset[..., 0] >= parent_min, tf.float32))
         upstream_grad = tf.einsum('bi, bi -> bi', upstream_grad, tf.cast(offset[..., 0] <= parent_max, tf.float32))
         return None, None, None, None, None, upstream_grad
@@ -558,43 +558,6 @@ class pool_treelet(tf.Module) :
 
 ####################################################### EDIT ##################################################################################
 
-
-@tf.function
-def prims_intersecting_node(node_bounds, point_cloud):
-    """ Returns the primtives which intersect the given node bounds. """
-    x1, x2, x3 = tf.unstack(point_cloud[..., :3], axis=-1)
-    y1, y2, y3 = tf.unstack(point_cloud[..., 3:6], axis=-1) 
-    z1, z2, z3 = tf.unstack(point_cloud[..., 6:9], axis=-1)
-
-    x_bmin = node_bounds[..., 0:1]
-    y_bmin = node_bounds[..., 1:2]
-    z_bmin = node_bounds[..., 2:3]
-    x_bmax = node_bounds[..., 3:4]
-    y_bmax = node_bounds[..., 4:5]
-    z_bmax = node_bounds[..., 5:6]
-
-    x1_in_bounds = tf.logical_and(x1 >= x_bmin, x1 <= x_bmax)
-    x2_in_bounds = tf.logical_and(x2 >= x_bmin, x2 <= x_bmax)
-    x3_in_bounds = tf.logical_and(x3 >= x_bmin, x3 <= x_bmax)
-
-    y1_in_bounds = tf.logical_and(y1 >= y_bmin, y1 <= y_bmax)
-    y2_in_bounds = tf.logical_and(y2 >= y_bmin, y2 <= y_bmax)
-    y3_in_bounds = tf.logical_and(y3 >= y_bmin, y3 <= y_bmax)
-
-    z1_in_bounds = tf.logical_and(z1 >= z_bmin, z1 <= z_bmax)
-    z2_in_bounds = tf.logical_and(z2 >= z_bmin, z2 <= z_bmax)
-    z3_in_bounds = tf.logical_and(z3 >= z_bmin, z3 <= z_bmax)
-
-    point1_in_bounds = tf.logical_and(tf.logical_and(x1_in_bounds, y1_in_bounds), z1_in_bounds)
-    point2_in_bounds = tf.logical_and(tf.logical_and(x2_in_bounds, y2_in_bounds), z2_in_bounds)
-    point3_in_bounds = tf.logical_and(tf.logical_and(x3_in_bounds, y3_in_bounds), z3_in_bounds)
-
-    at_least_one_inside = tf.logical_or(tf.logical_or(point1_in_bounds, point2_in_bounds), point3_in_bounds)
-    at_least_one_outside = tf.logical_not(tf.logical_and(tf.logical_and(point1_in_bounds, point2_in_bounds), point3_in_bounds))
-
-    return tf.logical_and(at_least_one_inside, at_least_one_outside)
-
-
 @tf.function
 @tf.custom_gradient
 def qL_fn_SAH(beta, axis_points, parent_mask, parent_min, parent_max, offset):
@@ -659,6 +622,7 @@ class pool_treelet_EPO(tf.Module) :
         self.i_isect_cost = i_isect_cost
         self.beta = beta
         self.w_eval_SAH = sah_eval()
+        self.wL_fn_EPO = wL_fn_EPO
         self.qL_fn_SAH = qL_fn_SAH
         self.EPO_SAH_alpha = epo_sah_alpha
 
@@ -691,9 +655,11 @@ class pool_treelet_EPO(tf.Module) :
         xL_bounds, xR_bounds, yL_bounds, yR_bounds, zL_bounds, zR_bounds,
         flag) :
 
+        parent_mask = tf.stop_gradient(nss_tree_common.build_mask(point_clouds, parent_bounds))
+
         Cnode_EPO = \
             self.p_eval(point_clouds, parent_normal, parent_offset, parent_bounds, node_bounds) * \
-            self.w_eval_EPO(root_bounds, node_bounds, point_clouds)
+            self.w_eval_EPO(point_clouds, node_bounds, parent_normal, parent_bounds, parent_mask)
         
         Cnode_SAH = \
             self.p_eval(point_clouds, parent_normal, parent_offset, parent_bounds, node_bounds) * \
@@ -711,19 +677,18 @@ class pool_treelet_EPO(tf.Module) :
         CyR_SAH = qR_Y * self.w_eval_SAH(root_bounds, yR_bounds, point_clouds)
         CzL_SAH = qL_Z * self.w_eval_SAH(root_bounds, zL_bounds, point_clouds)
         CzR_SAH = qR_Z * self.w_eval_SAH(root_bounds, zR_bounds, point_clouds)
-
-        parent_mask = tf.stop_gradient(nss_tree_common.build_mask(point_clouds, parent_bounds))
+        
         QleafL_SAH, QleafR_SAH = self.q_eval(point_clouds, parent_normal, parent_offset, parent_bounds, parent_mask)
         QleafRoot_SAH = tf.zeros_like(qL_X) * self.normFactor
         Qleaf_SAH = QleafRoot_SAH * flag[0] + QleafL_SAH * flag[1] + QleafR_SAH * flag[2]
         Cleaf = Qleaf_SAH * self.w_eval_SAH(root_bounds, node_bounds, point_clouds) # only needed for unbalanced tree
         
-        CxL_EPO = self.w_eval_EPO(root_bounds, xL_bounds, point_clouds) # * qL_X
-        CxR_EPO = self.w_eval_EPO(root_bounds, xR_bounds, point_clouds) # * qR_X
-        CyL_EPO = self.w_eval_EPO(root_bounds, yL_bounds, point_clouds) # * qL_Y
-        CyR_EPO = self.w_eval_EPO(root_bounds, yR_bounds, point_clouds) # * qR_Y
-        CzL_EPO = self.w_eval_EPO(root_bounds, zL_bounds, point_clouds) # * qL_Z 
-        CzR_EPO = self.w_eval_EPO(root_bounds, zR_bounds, point_clouds) # * qR_Z
+        CxL_EPO = self.w_eval_EPO(point_clouds, node_bounds, parent_normal, parent_bounds, parent_mask) # * qL_X
+        CxR_EPO = self.w_eval_EPO(point_clouds, node_bounds, parent_normal, parent_bounds, parent_mask) # * qR_X
+        CyL_EPO = self.w_eval_EPO(point_clouds, node_bounds, parent_normal, parent_bounds, parent_mask) # * qL_Y
+        CyR_EPO = self.w_eval_EPO(point_clouds, node_bounds, parent_normal, parent_bounds, parent_mask) # * qR_Y
+        CzL_EPO = self.w_eval_EPO(point_clouds, node_bounds, parent_normal, parent_bounds, parent_mask) # * qL_Z 
+        CzR_EPO = self.w_eval_EPO(point_clouds, node_bounds, parent_normal, parent_bounds, parent_mask) # * qR_Z
         #Cleaf_EPO = (Cnode_EPO / self.p_eval(point_clouds, parent_normal, parent_offset, parent_bounds, node_bounds)) * self.t_isect_cost
 
 
@@ -741,10 +706,12 @@ class pool_treelet_EPO(tf.Module) :
     @tf.function
     def eval_interior(self, point_clouds,
         root_bounds, parent_bounds, parent_normal, parent_offset, node_bounds) :
+
+        parent_mask = tf.stop_gradient(nss_tree_common.build_mask(point_clouds, parent_bounds))
         
         Cnode_EPO = \
             self.p_eval(point_clouds, parent_normal, parent_offset, parent_bounds, node_bounds) * \
-            self.w_eval_EPO(root_bounds, node_bounds, point_clouds)
+            self.w_eval_EPO(point_clouds, node_bounds, parent_normal, parent_bounds, parent_mask)
         
         Cnode_SAH = \
             self.p_eval(point_clouds, parent_normal, parent_offset, parent_bounds, node_bounds) * \
@@ -887,6 +854,7 @@ class pool_treelet_EPO(tf.Module) :
         parent_normal_expanded = tf.repeat(parent_normal, repeats=3)
         masked_primitives = tf.multiply(primitive_cloud, parent_normal_expanded)
 
+        # always selects one of the addends -> x1,x2,x3 or y1,y2,y3 or z1,z2,z3
         p1 = masked_primitives[:,:,0:1] + masked_primitives[:,:,3:4] + masked_primitives[:,:,6:7]
         p2 = masked_primitives[:,:,1:2] + masked_primitives[:,:,4:5] + masked_primitives[:,:,7:8]
         p3 = masked_primitives[:,:,2:3] + masked_primitives[:,:,5:6] + masked_primitives[:,:,8:9]
@@ -901,16 +869,32 @@ class pool_treelet_EPO(tf.Module) :
         N = tf.stop_gradient(tf.reduce_sum(parent_mask, axis=1))
         nL = self.qL_fn_SAH(self.beta, axis_points, parent_mask, parent_minmax[..., 0:1], parent_minmax[..., 1:], parent_offset)[0]
         return nL * self.t_isect_cost, (N - nL) * self.t_isect_cost
-        
+    
     @tf.function
-    def w_eval_EPO(self, root_bounds, node_bounds, point_clouds):
-        prims_isect_node_mask = tf.stop_gradient(tf.cast(tf.expand_dims(prims_intersecting_node(node_bounds, point_clouds), axis=-1), tf.float32))
-        intersecting_prims = tf.einsum('bij, bik -> bij', point_clouds, prims_isect_node_mask)
-        
-        return self.surface_prims_EPO(intersecting_prims) / self.surface_prims_EPO(point_clouds)
+    def w_eval_EPO(self, primitive_cloud, node_bounds, parent_normal, parent_bounds, parent_mask):
+        axis_points = self.get_axis_points(primitive_cloud, parent_normal)
+
+        parent_minmax = tf.einsum('bij, j -> bi', tf.reshape(parent_bounds, [-1, 2, 3]), parent_normal)
+        node_minmax = tf.einsum('bij, j -> bi', tf.reshape(node_bounds, [-1, 2, 3]), parent_normal)
+
+        return self.wL_fn_EPO(
+            node_bounds=node_bounds,
+            node_min=node_minmax[..., 0:1],
+            node_max=node_minmax[..., 1:2],
+            beta=self.beta, 
+            axis_points=axis_points, 
+            parent_mask=parent_mask,  
+            parent_min=parent_minmax[..., 0:1],
+            parent_max=parent_minmax[..., 1:2],
+            primitive_cloud=primitive_cloud)[0]
+
+
+@tf.function
+@tf.custom_gradient
+def wL_fn_EPO(node_bounds, node_min, node_max, beta, axis_points, parent_mask, parent_min, parent_max, primitive_cloud):
 
     @tf.function
-    def surface_prims_EPO(self, prims):
+    def surface_prims_EPO(prims):
         P1 = tf.stack([prims[:, :, 0], prims[:, :, 3], prims[:, :, 6]], axis=-1)
         P2 = tf.stack([prims[:, :, 1], prims[:, :, 4], prims[:, :, 7]], axis=-1)
         P3 = tf.stack([prims[:, :, 2], prims[:, :, 5], prims[:, :, 8]], axis=-1)
@@ -919,10 +903,134 @@ class pool_treelet_EPO(tf.Module) :
         AC = P3 - P1
         
         u = tf.linalg.cross(AB, AC)
-        norm_u = tf.norm(u, axis=1)
-        surface_area = tf.reduce_sum(norm_u)
+        prims_surfaces = tf.expand_dims(tf.norm(u, axis=-1), axis=-1)
+        surface_area = tf.reduce_sum(prims_surfaces, axis=1)
         
         surface_area *= 0.5
         
         return surface_area
+        
+    @tf.function
+    def get_prims_intersecting_node_mask(node_bounds, parent_mask, primitive_cloud):
+        """ Returns the primtives which intersect the given node bounds. """
+        x1, x2, x3 = tf.unstack(primitive_cloud[..., :3], axis=-1)
+        y1, y2, y3 = tf.unstack(primitive_cloud[..., 3:6], axis=-1) 
+        z1, z2, z3 = tf.unstack(primitive_cloud[..., 6:9], axis=-1)
+
+        x_bmin = node_bounds[..., 0:1]
+        y_bmin = node_bounds[..., 1:2]
+        z_bmin = node_bounds[..., 2:3]
+        x_bmax = node_bounds[..., 3:4]
+        y_bmax = node_bounds[..., 4:5]
+        z_bmax = node_bounds[..., 5:6]
+
+        x1_in_bounds = tf.logical_and(x1 >= x_bmin, x1 <= x_bmax)
+        x2_in_bounds = tf.logical_and(x2 >= x_bmin, x2 <= x_bmax)
+        x3_in_bounds = tf.logical_and(x3 >= x_bmin, x3 <= x_bmax)
+
+        y1_in_bounds = tf.logical_and(y1 >= y_bmin, y1 <= y_bmax)
+        y2_in_bounds = tf.logical_and(y2 >= y_bmin, y2 <= y_bmax)
+        y3_in_bounds = tf.logical_and(y3 >= y_bmin, y3 <= y_bmax)
+
+        z1_in_bounds = tf.logical_and(z1 >= z_bmin, z1 <= z_bmax)
+        z2_in_bounds = tf.logical_and(z2 >= z_bmin, z2 <= z_bmax)
+        z3_in_bounds = tf.logical_and(z3 >= z_bmin, z3 <= z_bmax)
+
+        point1_in_bounds = tf.logical_and(tf.logical_and(x1_in_bounds, y1_in_bounds), z1_in_bounds)
+        point2_in_bounds = tf.logical_and(tf.logical_and(x2_in_bounds, y2_in_bounds), z2_in_bounds)
+        point3_in_bounds = tf.logical_and(tf.logical_and(x3_in_bounds, y3_in_bounds), z3_in_bounds)
+
+        at_least_one_point_inside = tf.logical_or(tf.logical_or(point1_in_bounds, point2_in_bounds), point3_in_bounds)
+        at_least_one_point_outside = tf.logical_not(tf.logical_and(tf.logical_and(point1_in_bounds, point2_in_bounds), point3_in_bounds))
+
+        total_prims_intersecting_node = tf.cast(tf.expand_dims(tf.logical_and(at_least_one_point_inside, at_least_one_point_outside), axis=-1), tf.float32)
+
+        prims_in_sibling_node_mask = tf.multiply(total_prims_intersecting_node, parent_mask)
+        prims_outside_sibling_intersecting_node_mask = total_prims_intersecting_node - prims_in_sibling_node_mask 
+
+        points_inside_node_mask = tf.concat([tf.cast(point1_in_bounds[..., tf.newaxis], tf.float32), \
+                                             tf.cast(point2_in_bounds[..., tf.newaxis], tf.float32), \
+                                             tf.cast(point3_in_bounds[..., tf.newaxis], tf.float32)], axis=-1)
+        
+        # what a name ;)
+        prims_outside_sibling_intersecting_node_inside_points = tf.einsum('bij, bik -> bij', points_inside_node_mask,\
+                                                                           prims_outside_sibling_intersecting_node_mask)
+
+        return total_prims_intersecting_node, prims_in_sibling_node_mask, prims_outside_sibling_intersecting_node_inside_points 
     
+
+    prims_isect_node_mask, prims_in_sibling_node_mask, prims_outside_sibling_intersecting_node_inside_points_mask = get_prims_intersecting_node_mask(\
+                                                                                                            node_bounds, parent_mask, primitive_cloud)
+    
+    intersecting_prims = tf.einsum('bij, bik -> bij', primitive_cloud, prims_isect_node_mask)
+    surface_intersecting_prims = surface_prims_EPO(intersecting_prims)
+
+    @tf.function
+    def next_step(is_left_child):
+        axis_points_in_sibling = tf.einsum('bij, bik -> bij', axis_points, prims_in_sibling_node_mask)
+        # only keeps axis values of primitive points which acutally lay inside the bounds -> outside points are set to 0
+        axis_points_out_sib_iscet_node_inside_points = axis_points * prims_outside_sibling_intersecting_node_inside_points_mask
+
+        max_axis_point = tf.reduce_max(axis_points)
+
+        if is_left_child:
+            mins_from_sibling = tf.reduce_min(axis_points_in_sibling, axis=2, keepdims=True)
+
+            # needed to eliminate 0's for min reduction
+            inverse_prims_outside_sibling_intersecting_node_inside_points_mask = (prims_outside_sibling_intersecting_node_inside_points_mask - 1) * (-1)
+            axis_points_out_sib_iscet_node_inside_points += inverse_prims_outside_sibling_intersecting_node_inside_points_mask * max_axis_point
+
+            temp_mins_from_out_sibling = tf.reduce_min(axis_points_out_sib_iscet_node_inside_points, axis=2, keepdims=True)
+            prims_outside_sibling_intersecting_node_mask = tf.reduce_sum(prims_outside_sibling_intersecting_node_inside_points_mask, axis=-1, keepdims=True)
+            prims_outside_sibling_intersecting_node_mask = tf.cast(prims_outside_sibling_intersecting_node_mask >= 1, tf.float32)
+            mins_from_out_sibling = tf.einsum('bij, bik -> bij', temp_mins_from_out_sibling, prims_outside_sibling_intersecting_node_mask)
+
+            # mins are all minimum (in split dimension) points from primitives which intersects the current node's bounds
+            mins = mins_from_sibling + mins_from_out_sibling
+
+            surface_reduction_offsets = tf.reduce_max(mins, axis=1)
+            surface_reduction_offsets_prims_mask = tf.cast(tf.equal(surface_reduction_offsets[:, tf.newaxis, :], mins), tf.float32)
+
+            difference_quotient_numerator = surface_prims_EPO(primitive_cloud * surface_reduction_offsets_prims_mask)
+            difference_quotient_denominator = node_max - surface_reduction_offsets
+            
+        else: # right_child
+            maxs_from_sibling = tf.reduce_max(axis_points_in_sibling, axis=2, keepdims=True)
+            maxs_from_out_sibling = tf.reduce_max(axis_points_out_sib_iscet_node_inside_points, axis=2, keepdims=True)
+            maxs = maxs_from_sibling + maxs_from_out_sibling
+
+            maxs_transformed_for_min_reduction = (prims_isect_node_mask - 1) * (-max_axis_point)
+            maxs_transformed_for_min_reduction = maxs_transformed_for_min_reduction + maxs
+            surface_reduction_offsets = tf.reduce_min(maxs_transformed_for_min_reduction, axis=1)
+            surface_reduction_offsets_prims_mask = tf.cast(tf.equal(surface_reduction_offsets[:, tf.newaxis, :], maxs), tf.float32)
+
+            # swap of f(b) = (surface_intersecting_prims - surface_reduction) with f(a) = surface_intersecting_prims intended! 
+            # -> swap direction of gradient because gradient would point to local minimum otherwise! (difference quotient = (f(b) - f(a)) / (b - a) )
+            difference_quotient_numerator = surface_prims_EPO(primitive_cloud * surface_reduction_offsets_prims_mask)
+            difference_quotient_denominator = surface_reduction_offsets - node_min
+
+        return difference_quotient_numerator, difference_quotient_denominator
+    
+    @tf.function
+    def grad(upstream):
+        """ Custom gradient: Defined by the surface of the primitive(s) which are no longer intersecting the node when 
+            reducing the node's AABB extent by moving the newly calculated bound inwards. """
+        is_left_child = (node_min <= parent_min)[0]
+        difference_quotient_numerator, difference_quotient_denominator = next_step(is_left_child)
+        slope = tf.math.divide_no_nan(difference_quotient_numerator, difference_quotient_denominator)
+        stepGrad = tf.clip_by_value(slope, 0.0, 1.0 / 0.0001)
+
+        upstream_grad = stepGrad
+        upstream_grad = tf.einsum('bi, bi -> bi', upstream, upstream_grad)
+        # adapt here:
+        upstream_grad = tf.einsum('bi, bi -> bi', upstream_grad, tf.cast(node_min >= parent_min, tf.float32))
+        upstream_grad = tf.einsum('bi, bi -> bi', upstream_grad, tf.cast(node_max <= parent_max, tf.float32))
+        if is_left_child:
+            # return for node_max
+            return None, None, upstream_grad, None, None, None, None, None, None
+        else:
+            # return for node_min
+            return None, upstream_grad, None, None, None, None, None, None, None
+
+    # 0.5 -> approximation of primitives surfaces which acutally lay inside the volume
+    return 0.5 * (surface_intersecting_prims / surface_prims_EPO(primitive_cloud)), grad
