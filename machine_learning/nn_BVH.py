@@ -177,14 +177,13 @@ def build_greedy_SAH_EPO_tree_single_thread(root_node: BVHNode, alpha: float, le
                 best_split = BestSplit(cost=sys.float_info.max, offset= -0.5)
                 for axis in Axis:
                     split_offsets = get_all_split_offsets(node_data.node.primitives, axis)
-
+                    max_epo = 0
                     for o_idx, offset in enumerate(split_offsets):
                         sah = nn_loss.SAH_single_node(node_data.node, axis, offset)
                         epo, left_overlapping, right_overlapping = nn_loss.EPO_single_node(\
                             node_data.node, axis, offset, node_data.overlapping_prims, root_surface)
-                        epo_scaled = sah * epo
-                        cost = (1-alpha) * sah + alpha * epo_scaled
-
+                        if (epo > max_epo): max_epo = epo
+                        cost = (1-alpha) * sah + alpha * epo
                         if (cost < best_split.cost):
                             best_split.cost = cost
                             best_split.offset = offset
@@ -236,9 +235,8 @@ def compute_cost_with_epo(task: Tuple[Axis, float, BVHNode, list[Primitive3], fl
             sah = nn_loss.SAH_single_node(node, axis, offset)
             epo, left_overlapping, right_overlapping = nn_loss.EPO_single_node(
                 node, axis, offset, overlapping_prims, root_surface)
-            epo_scaled = sah * epo
-            cost = (1-alpha) * sah + alpha * epo_scaled
-
+            
+            cost = (1-alpha) * sah + alpha * epo
             if cost < best_split.cost:
                 best_split.cost = cost
                 best_split.offset = offset
@@ -304,7 +302,7 @@ def build_greedy_SAH_EPO_tree_multi_thread(root_node: BVHNode, alpha: float, lev
 
     for level in range(levels):
         for node_data in nodes_hierarchy[level]:
-            chunk_size = max(16 if use_epo else 32, math.ceil(len(node_data.node.primitives) / os.cpu_count()))
+            chunk_size = max(4 if use_epo else 32, math.ceil(len(node_data.node.primitives) / os.cpu_count()))
             best_split = parallel(node_data, chunk_size)
     
             if node_data.node.split(best_split.axis, best_split.offset): 
