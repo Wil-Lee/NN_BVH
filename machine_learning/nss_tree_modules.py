@@ -50,19 +50,17 @@ class neuralNode_splitter(tf.Module) :
         (theta_offset_left, theta_offset_right) = child_bounds(self.beta, axis_points, parent_mask, b0, b1, theta_offset)
 
         right_bmin_temp = tf.einsum('bk, k -> bk', node_bmin, 1.0 - normal) + tf.einsum('bi, k -> bk', theta_offset_right, normal)
-        right_bmax_temp = node_bmax
 
-        right_bmin = tf.minimum(right_bmin_temp, right_bmax_temp)
-        right_bmax = tf.maximum(right_bmin_temp, right_bmax_temp)
+        right_bmin = tf.minimum(right_bmin_temp, node_bmax)
+        right_bmin = tf.maximum(right_bmin, node_bmin)
 
-        left_bmin_temp = node_bmin
         left_bmax_temp = tf.einsum('bk, k -> bk', node_bmax, 1.0 - normal) + tf.einsum('bi, k -> bk', theta_offset_left, normal)
 
-        left_bmin = tf.minimum(left_bmin_temp, left_bmax_temp)
-        left_bmax = tf.maximum(left_bmin_temp, left_bmax_temp)
+        left_bmax = tf.minimum(node_bmax, left_bmax_temp)
+        left_bmax = tf.maximum(node_bmin, left_bmax)
 
-        left_bbox = tf.concat([left_bmin, left_bmax], axis=-1)
-        right_bbox = tf.concat([right_bmin, right_bmax], axis=-1)
+        left_bbox = tf.concat([node_bmin, left_bmax], axis=-1)
+        right_bbox = tf.concat([right_bmin, node_bmax], axis=-1)
 
         return (theta_offset_left, theta_offset_right, theta_offset), left_bbox, right_bbox
 
@@ -116,21 +114,27 @@ def child_bounds(beta, axis_points, parent_mask, parent_min, parent_max, offset)
     maxs = tf.reduce_max(axis_points, axis=2, keepdims=True)
     
     prims_left_to_split_mask = tf.einsum('bij, bij -> bij', parent_mask, tf.cast(maxs < offset, tf.float32))
+
     prims_isecting_split_mask = tf.einsum('bij, bij -> bij', parent_mask, \
                                                 tf.cast(tf.logical_and(mins <= offset, offset <= maxs), tf.float32))
+    
     left_child_prims_isecting_split_mask = tf.einsum('bij, bij -> bij', prims_isecting_split_mask, \
         tf.cast(tf.abs(offset - mins) >= tf.abs(maxs - offset), tf.float32))
-    left_child_max_bound = tf.reduce_max(tf.einsum('bij, bij -> bij', maxs, left_child_prims_isecting_split_mask), axis=1)
     
-    left_child_prims_bool_mask = tf.cast(left_child_prims_isecting_split_mask + prims_left_to_split_mask, tf.bool)
-    right_child_prims_mask = tf.cast(tf.logical_not(left_child_prims_bool_mask), tf.float32)
-    total_max = tf.reduce_max(maxs)
+    left_child_prims_mask = left_child_prims_isecting_split_mask + prims_left_to_split_mask
+
+    left_child_max_bound = tf.reduce_max(tf.einsum('bij, bij -> bij', maxs, left_child_prims_mask), axis=1)
+    
+    right_child_prims_mask = tf.cast(tf.logical_not(tf.cast(left_child_prims_mask, tf.bool)), tf.float32)
+    right_child_prims_mask = tf.einsum('bij, bij -> bij', parent_mask, right_child_prims_mask)
+
+    above_max = tf.reduce_max(maxs) + 1
     # needed to eliminate 0s for reduce_min by adding total_max to all 0s of right child's primitives
-    right_child_prims_non_zero = (tf.cast(left_child_prims_bool_mask, tf.float32) * total_max) \
+    right_child_prims_non_zero = ((right_child_prims_mask - 1) * (-1)) * above_max \
         + tf.einsum('bij, bij -> bij', mins, right_child_prims_mask)
     right_child_min_bound = tf.reduce_min(right_child_prims_non_zero, axis=1)
     
-    N = tf.reduce_sum(tf.cast(left_child_prims_bool_mask, tf.float32), axis=1)
+    N = tf.reduce_sum(left_child_prims_mask, axis=1)
 
     @tf.function
     def next_step(mask, split_value):
@@ -138,11 +142,12 @@ def child_bounds(beta, axis_points, parent_mask, parent_min, parent_max, offset)
         right_child_maxs = tf.einsum('bij, bij -> bij', maxs, right_child_prims_mask)
 
         right_child_prims_mids = right_child_mins + ((right_child_maxs - right_child_mins) * 0.5)
-        right_child_prims_mids_non_zero = (tf.cast(left_child_prims_bool_mask, tf.float32) * total_max) \
+        right_child_prims_mids_non_zero = left_child_prims_mask * above_max \
             + right_child_prims_mids
         
         offset_above = tf.reduce_min(right_child_prims_mids_non_zero, axis=1, keepdims=True)
         prims_increase = tf.reduce_sum(tf.cast(tf.equal(right_child_prims_mids, offset_above), tf.float32), axis=1)
+        prims_increase = tf.maximum(prims_increase, tf.ones_like(prims_increase, dtype=tf.float32))
         axis_max = tf.reduce_max(maxs, axis=1, keepdims=True)
         offset_above = tf.math.minimum(offset_above, axis_max)
 
@@ -161,7 +166,10 @@ def child_bounds(beta, axis_points, parent_mask, parent_min, parent_max, offset)
         upstream_grad = tf.einsum('bi, bi -> bi', upstream_grad, tf.cast(offset[..., 0] <= parent_max, tf.float32))
         return None, None, None, None, None, upstream_grad
 
+    #grad(tf.constant(shape=(32,1), value=1.0, dtype=tf.float32), 1) # debug
+
     return (left_child_max_bound, right_child_min_bound), grad
+
 
 @tf.function
 def get_axis_points(primitive_cloud, parent_normal):
@@ -570,33 +578,31 @@ class pool_treelet(tf.Module) :
 @tf.custom_gradient
 def qL_fn_SAH(beta, axis_points, parent_mask, parent_min, parent_max, offset):
     left_offset = offset[0][..., tf.newaxis]
-    right_offset = offset[1][..., tf.newaxis]
     
     mins = tf.reduce_min(axis_points, axis=2, keepdims=True)
     maxs = tf.reduce_max(axis_points, axis=2, keepdims=True)
+    mids = mins + ((maxs - mins) * 0.5)
     
     left_child_prims_mask = tf.einsum('bij, bij -> bij', parent_mask, tf.cast(maxs <= left_offset, tf.float32))
-    right_child_prims_mask = tf.einsum('bij, bij -> bij', parent_mask, tf.cast(mins >= right_offset, tf.float32))
+    right_child_prims_right_to_left_offset_mask = tf.einsum('bij, bij -> bij', parent_mask, tf.cast(mids > left_offset, tf.float32))
     
-    total_max = tf.reduce_max(maxs)
+    above_max = tf.reduce_max(maxs) + 1
     
     N = tf.reduce_sum(left_child_prims_mask, axis=1)
     
     @tf.function
     def next_step(mask):
-        right_child_mins = tf.einsum('bij, bij -> bij', mins, right_child_prims_mask)
-        right_child_maxs = tf.einsum('bij, bij -> bij', maxs, right_child_prims_mask)
-
-        right_child_prims_mids = right_child_mins + ((right_child_maxs - right_child_mins) * 0.5)
-        right_child_prims_mids_non_zero = (left_child_prims_mask * total_max) \
+        right_child_prims_mids = tf.einsum('bij, bij -> bij', mids, right_child_prims_right_to_left_offset_mask)
+        beta, axis_points, parent_mask, parent_min, parent_max, offset
+        right_child_prims_mids_non_zero = ((tf.abs(right_child_prims_right_to_left_offset_mask - 1)) * above_max) \
             + right_child_prims_mids
 
         offset_above = tf.reduce_min(right_child_prims_mids_non_zero, axis=1, keepdims=True)
         prims_increase = tf.reduce_sum(tf.cast(tf.equal(right_child_prims_mids, offset_above), tf.float32), axis=1)
-        axis_max = tf.reduce_max(maxs, axis=1, keepdims=True)
-        offset_above = tf.math.minimum(offset_above, axis_max)
 
+        prims_increase = tf.maximum(prims_increase, tf.ones_like(prims_increase, dtype=tf.float32))
         N1 = N + prims_increase
+
         return offset_above, N1
 
     @tf.function
@@ -610,6 +616,7 @@ def qL_fn_SAH(beta, axis_points, parent_mask, parent_min, parent_max, offset):
         upstream_grad = tf.einsum('bi, bi -> bi', upstream, upstream_grad)
         upstream_grad = tf.einsum('bi, bi -> bi', upstream_grad, tf.cast(split_offset[..., 0] >= parent_min, tf.float32))
         upstream_grad = tf.einsum('bi, bi -> bi', upstream_grad, tf.cast(split_offset[..., 0] <= parent_max, tf.float32))
+
         return None, None, None, None, None, None, None, upstream_grad
     
     return N, grad
@@ -973,8 +980,7 @@ def wL_fn_EPO(node_bounds, node_min, node_max, beta, axis_points, parent_mask, p
         mins_from_sibling = tf.reduce_min(axis_points_in_sibling, axis=2, keepdims=True)
 
         # needed to eliminate 0's for min reduction
-        inverse_prims_outside_sibling_intersecting_node_inside_points_mask = (prims_outside_sibling_intersecting_node_inside_points_mask - 1) * (-1)
-        axis_points_out_sib_iscet_node_inside_points += inverse_prims_outside_sibling_intersecting_node_inside_points_mask * max_axis_point
+        axis_points_out_sib_iscet_node_inside_points += tf.abs(prims_outside_sibling_intersecting_node_inside_points_mask - 1) * max_axis_point
 
         temp_mins_from_out_sibling = tf.reduce_min(axis_points_out_sib_iscet_node_inside_points, axis=2, keepdims=True)
         prims_outside_sibling_intersecting_node_mask = tf.reduce_sum(prims_outside_sibling_intersecting_node_inside_points_mask, axis=-1, keepdims=True)
@@ -987,6 +993,9 @@ def wL_fn_EPO(node_bounds, node_min, node_max, beta, axis_points, parent_mask, p
         surface_reduction_offsets = tf.reduce_max(mins, axis=1)
         surface_reduction_offsets_prims_mask = tf.cast(tf.equal(surface_reduction_offsets[:, tf.newaxis, :], mins), tf.float32)
 
+        # This whole function decreases if left_node_min (a) gets smaller and increases if a gets bigger because the left childs extent gets bigger with increaing a
+        # parent bound: [[------left child-----]  [---right child---]] 
+        #            -> [[--left child--]         [---right child---]]
         difference_quotient_numerator = surface_prims_EPO(primitive_cloud * surface_reduction_offsets_prims_mask)
         difference_quotient_denominator = node_max - surface_reduction_offsets
 
@@ -1004,14 +1013,16 @@ def wL_fn_EPO(node_bounds, node_min, node_max, beta, axis_points, parent_mask, p
         maxs_from_out_sibling = tf.reduce_max(axis_points_out_sib_iscet_node_inside_points, axis=2, keepdims=True)
         maxs = maxs_from_sibling + maxs_from_out_sibling
 
-        maxs_transformed_for_min_reduction = (prims_isect_node_mask - 1) * (-max_axis_point)
+        maxs_transformed_for_min_reduction = tf.abs(prims_isect_node_mask - 1) * max_axis_point
         maxs_transformed_for_min_reduction = maxs_transformed_for_min_reduction + maxs
         surface_reduction_offsets = tf.reduce_min(maxs_transformed_for_min_reduction, axis=1)
         surface_reduction_offsets_prims_mask = tf.cast(tf.equal(surface_reduction_offsets[:, tf.newaxis, :], maxs), tf.float32)
 
-        # swap of f(b) = (surface_intersecting_prims - surface_reduction) with f(a) = surface_intersecting_prims intended! 
-        # -> swap direction of gradient because gradient would point to local minimum otherwise! (difference quotient = (f(b) - f(a)) / (b - a) )
-        difference_quotient_numerator = surface_prims_EPO(primitive_cloud * surface_reduction_offsets_prims_mask)
+        # -1 needed because with growing right_node_min (a) the surface of intersecting prims (f(a)) gets smaller 
+        # -> this whole function increases if a gets smaller and decreases if a gets bigger because the right childs extent gets smaller with increaing a
+        # parent bound: [[------left child-----]  [---right child---]] 
+        #            -> [[------left child-----]      [-right child-]]
+        difference_quotient_numerator = (-1) * surface_prims_EPO(primitive_cloud * surface_reduction_offsets_prims_mask)
         difference_quotient_denominator = surface_reduction_offsets - node_min
 
         return difference_quotient_numerator, difference_quotient_denominator
