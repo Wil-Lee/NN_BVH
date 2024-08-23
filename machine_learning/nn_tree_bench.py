@@ -28,7 +28,7 @@ def bench(name):
 
 class Model:
     def __init__(self, config):
-        self.net = nss_treeNet_model.neural_kdtree(config, 'test_tree')
+        self.net = nss_treeNet_model.neural_kdtree(config, 'EPO_tree')
         self.net.load_trained_model(load_optimizer=False)
 
     def get_prediction(self, config, scene: nss_data_stream.scene, greedyInference = False):

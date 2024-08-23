@@ -44,15 +44,10 @@ class neuralNode_splitter(tf.Module) :
 
         parent_mask = tf.stop_gradient(nss_tree_common.build_mask_EPO(point_clouds, node_bounds))
 
-        if tf.reduce_all(tf.equal(normal, [1,0,0])):
-            axis_points = point_clouds[:,:,0:3]
-        elif tf.reduce_all(tf.equal(normal, [0,1,0])):
-            axis_points = point_clouds[:,:,3:6]
-        else:
-            axis_points = point_clouds[:,:,6:9]
+        axis_points = get_axis_points(point_clouds, normal)
 
         # TODO: if network doesn't behave as aspected - these bounds should be investigated
-        (theta_offset_left, theta_offset_right) = child_bounds(self.beta, axis_points, parent_mask, b0, b1, theta)
+        (theta_offset_left, theta_offset_right) = child_bounds(self.beta, axis_points, parent_mask, b0, b1, theta_offset)
 
         right_bmin_temp = tf.einsum('bk, k -> bk', node_bmin, 1.0 - normal) + tf.einsum('bi, k -> bk', theta_offset_right, normal)
         right_bmax_temp = node_bmax
@@ -167,6 +162,19 @@ def child_bounds(beta, axis_points, parent_mask, parent_min, parent_max, offset)
         return None, None, None, None, None, upstream_grad
 
     return (left_child_max_bound, right_child_min_bound), grad
+
+@tf.function
+def get_axis_points(primitive_cloud, parent_normal):
+    parent_normal_expanded = tf.repeat(parent_normal, repeats=3)
+    masked_primitives = tf.multiply(primitive_cloud, parent_normal_expanded)
+
+    # always selects one of the addends -> x1,x2,x3 or y1,y2,y3 or z1,z2,z3
+    p1 = masked_primitives[:,:,0:1] + masked_primitives[:,:,3:4] + masked_primitives[:,:,6:7]
+    p2 = masked_primitives[:,:,1:2] + masked_primitives[:,:,4:5] + masked_primitives[:,:,7:8]
+    p3 = masked_primitives[:,:,2:3] + masked_primitives[:,:,5:6] + masked_primitives[:,:,8:9]
+
+    return tf.concat([p1, p2, p3], axis=-1)
+
 ###############################################################################################################################################
 
 
@@ -683,12 +691,12 @@ class pool_treelet_EPO(tf.Module) :
         Qleaf_SAH = QleafRoot_SAH * flag[0] + QleafL_SAH * flag[1] + QleafR_SAH * flag[2]
         Cleaf = Qleaf_SAH * self.w_eval_SAH(root_bounds, node_bounds, point_clouds) # only needed for unbalanced tree
         
-        CxL_EPO = self.w_eval_EPO(point_clouds, node_bounds, parent_normal, parent_bounds, parent_mask) # * qL_X
-        CxR_EPO = self.w_eval_EPO(point_clouds, node_bounds, parent_normal, parent_bounds, parent_mask) # * qR_X
-        CyL_EPO = self.w_eval_EPO(point_clouds, node_bounds, parent_normal, parent_bounds, parent_mask) # * qL_Y
-        CyR_EPO = self.w_eval_EPO(point_clouds, node_bounds, parent_normal, parent_bounds, parent_mask) # * qR_Y
-        CzL_EPO = self.w_eval_EPO(point_clouds, node_bounds, parent_normal, parent_bounds, parent_mask) # * qL_Z 
-        CzR_EPO = self.w_eval_EPO(point_clouds, node_bounds, parent_normal, parent_bounds, parent_mask) # * qR_Z
+        CxL_EPO = self.t_isect_cost * self.w_eval_EPO(point_clouds, xL_bounds, self.nX, node_bounds, node_mask) # * qL_X
+        CxR_EPO = self.t_isect_cost * self.w_eval_EPO(point_clouds, xR_bounds, self.nX, node_bounds, node_mask) # * qR_X
+        CyL_EPO = self.t_isect_cost * self.w_eval_EPO(point_clouds, yL_bounds, self.nY, node_bounds, node_mask) # * qL_Y
+        CyR_EPO = self.t_isect_cost * self.w_eval_EPO(point_clouds, yR_bounds, self.nY, node_bounds, node_mask) # * qR_Y
+        CzL_EPO = self.t_isect_cost * self.w_eval_EPO(point_clouds, zL_bounds, self.nZ, node_bounds, node_mask) # * qL_Z 
+        CzR_EPO = self.t_isect_cost * self.w_eval_EPO(point_clouds, zR_bounds, self.nZ, node_bounds, node_mask) # * qR_Z
         #Cleaf_EPO = (Cnode_EPO / self.p_eval(point_clouds, parent_normal, parent_offset, parent_bounds, node_bounds)) * self.t_isect_cost
 
 
@@ -849,30 +857,19 @@ class pool_treelet_EPO(tf.Module) :
     def p_eval(self, point_clouds, parent_normal, parent_offset, parent_bounds, bounds) :
         return self.i_isect_cost
     
-    @tf.function
-    def get_axis_points(self, primitive_cloud, parent_normal):
-        parent_normal_expanded = tf.repeat(parent_normal, repeats=3)
-        masked_primitives = tf.multiply(primitive_cloud, parent_normal_expanded)
-
-        # always selects one of the addends -> x1,x2,x3 or y1,y2,y3 or z1,z2,z3
-        p1 = masked_primitives[:,:,0:1] + masked_primitives[:,:,3:4] + masked_primitives[:,:,6:7]
-        p2 = masked_primitives[:,:,1:2] + masked_primitives[:,:,4:5] + masked_primitives[:,:,7:8]
-        p3 = masked_primitives[:,:,2:3] + masked_primitives[:,:,5:6] + masked_primitives[:,:,8:9]
-
-        return tf.concat([p1, p2, p3], axis=-1)
     
     @tf.function
     def q_eval(self, primitive_cloud, parent_normal, parent_offset, parent_bounds, parent_mask):
-        axis_points = self.get_axis_points(primitive_cloud, parent_normal)      
+        axis_points = get_axis_points(primitive_cloud, parent_normal)      
 
         parent_minmax = tf.einsum('bij, j -> bi', tf.reshape(parent_bounds, [-1, 2, 3]), parent_normal)
         N = tf.stop_gradient(tf.reduce_sum(parent_mask, axis=1))
-        nL = self.qL_fn_SAH(self.beta, axis_points, parent_mask, parent_minmax[..., 0:1], parent_minmax[..., 1:], parent_offset)[0]
+        nL = self.qL_fn_SAH(self.beta, axis_points, parent_mask, parent_minmax[..., 0:1], parent_minmax[..., 1:], parent_offset)# [0] # needed for debug when deactivating tf.function and tf.custom_gradient at qL_fn_SAH
         return nL * self.t_isect_cost, (N - nL) * self.t_isect_cost
     
     @tf.function
     def w_eval_EPO(self, primitive_cloud, node_bounds, parent_normal, parent_bounds, parent_mask):
-        axis_points = self.get_axis_points(primitive_cloud, parent_normal)
+        axis_points = get_axis_points(primitive_cloud, parent_normal)
 
         parent_minmax = tf.einsum('bij, j -> bi', tf.reshape(parent_bounds, [-1, 2, 3]), parent_normal)
         node_minmax = tf.einsum('bij, j -> bi', tf.reshape(node_bounds, [-1, 2, 3]), parent_normal)
@@ -886,7 +883,7 @@ class pool_treelet_EPO(tf.Module) :
             parent_mask=parent_mask,  
             parent_min=parent_minmax[..., 0:1],
             parent_max=parent_minmax[..., 1:2],
-            primitive_cloud=primitive_cloud)[0]
+            primitive_cloud=primitive_cloud)#[0] # needed for debug mode when deactivating tf.function and tf.custom_gradient for wL_fn_EPO
     
 
 @tf.function
@@ -1030,7 +1027,6 @@ def wL_fn_EPO(node_bounds, node_min, node_max, beta, axis_points, parent_mask, p
 
         upstream_grad = stepGrad
         upstream_grad = tf.einsum('bi, bi -> bi', upstream, upstream_grad)
-        # adapt here:
         upstream_grad = tf.einsum('bi, bi -> bi', upstream_grad, tf.cast(node_min >= parent_min, tf.float32))
         upstream_grad = tf.einsum('bi, bi -> bi', upstream_grad, tf.cast(node_max <= parent_max, tf.float32))
 
