@@ -62,6 +62,7 @@ def build_tree_from_nn_prediction(root_node: nn_BVH.BVHNode, tree_structure: np.
     hierachy[0] = root_node
     hierachy_index = 1
     skip_index = []
+    are_splits_valid = True
     
     for index in range(len(tree_structure)):
         if index not in skip_index:
@@ -73,7 +74,7 @@ def build_tree_from_nn_prediction(root_node: nn_BVH.BVHNode, tree_structure: np.
                 skip_index.append(hierachy_index + 1)
         hierachy_index += 2
 
-    for node_opt in hierachy:
+    for index, node_opt in enumerate(hierachy):
         if node_opt == -1:
             continue
         if len(node_opt.primitives) == 0:
@@ -81,6 +82,8 @@ def build_tree_from_nn_prediction(root_node: nn_BVH.BVHNode, tree_structure: np.
             node_opt.parent.right_child = None
             node_opt.parent.is_leaf = True
             are_splits_valid = False
+        elif index >= (2 ** levels) - 1:
+            node_opt.is_leaf = True
     if not are_splits_valid:
         print("Invalid predicted offsets!")
 
@@ -108,14 +111,19 @@ def main():
     alpha = nss_global_config.EPO_SAH_alpha
     levels = nss_global_config.lvls
 
-    nn = Model(config)
-    
-    tree_structure = nn.get_prediction(config=config, scene=scenes[0])
-    build_tree_from_nn_prediction(root_node_nn_prediction, tree_structure)
+    if 1:
+        nn = Model(config)
+        
+        tree_structure = nn.get_prediction(config=config, scene=scenes[0])
+        build_tree_from_nn_prediction(root_node_nn_prediction, tree_structure)
+        sah_tree: float = nn_loss.SAH(root_node_nn_prediction)
+        epo_tree: float = nn_loss.EPO(root_node_nn_prediction)
 
+        print(f"pre_SAH: {sah_tree}")
+        print(f"pre_EPO: {epo_tree}\n")
 
     with bench("Building tree"):
-        nn_BVH.build_greedy_SAH_EPO_tree_multi_thread(root_node_optimal, alpha, levels, use_epo=True)
+        nn_BVH.build_greedy_SAH_EPO_tree_single_thread(root_node_optimal, alpha, levels - 1, use_epo=True)
 
     sah_tree: float = nn_loss.SAH(root_node_optimal)
     epo_tree: float = nn_loss.EPO(root_node_optimal)
