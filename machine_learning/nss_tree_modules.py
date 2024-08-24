@@ -627,7 +627,7 @@ def qL_fn_SAH(beta, axis_points, parent_mask, parent_min, parent_max, offset):
     @tf.function
     def next_step(mask):
         right_child_prims_mids = tf.einsum('bij, bij -> bij', mids, right_child_prims_right_to_left_offset_mask)
-        beta, axis_points, parent_mask, parent_min, parent_max, offset
+        
         right_child_prims_mids_non_zero = ((tf.abs(right_child_prims_right_to_left_offset_mask - 1)) * above_max) \
             + right_child_prims_mids
 
