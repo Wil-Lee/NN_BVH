@@ -759,9 +759,14 @@ class pool_treelet_EPO(tf.Module) :
 
         parent_mask = tf.stop_gradient(nss_tree_common.build_mask(point_clouds, parent_bounds))
         
-        Cnode_EPO = \
-            self.p_eval(point_clouds, parent_normal, parent_offset, parent_bounds, node_bounds) * \
-            self.w_eval_EPO(point_clouds, node_bounds, parent_normal, parent_bounds, parent_mask, parent_offset[2])
+        if tf.reduce_all(tf.equal(parent_normal, tf.constant([1,1,1], dtype=tf.float32))):
+            Cnode_EPO = \
+                self.p_eval(point_clouds, parent_normal, parent_offset, parent_bounds, node_bounds) * \
+                self.w_eval_EPO(point_clouds, node_bounds, parent_normal, parent_bounds, parent_mask, parent_offset)
+        else:
+            Cnode_EPO = \
+                self.p_eval(point_clouds, parent_normal, parent_offset, parent_bounds, node_bounds) * \
+                self.w_eval_EPO(point_clouds, node_bounds, parent_normal, parent_bounds, parent_mask, parent_offset[2])
         
         Cnode_SAH = \
             self.p_eval(point_clouds, parent_normal, parent_offset, parent_bounds, node_bounds) * \
