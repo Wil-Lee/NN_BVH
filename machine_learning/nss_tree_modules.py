@@ -611,14 +611,15 @@ class pool_treelet(tf.Module) :
 @tf.function
 @tf.custom_gradient
 def qL_fn_SAH(beta, axis_points, parent_mask, parent_min, parent_max, offset):
-    left_offset = offset[0][..., tf.newaxis]
+    left_max_bound = offset[0][..., tf.newaxis]
+    split_offset = offset[2][..., tf.newaxis]
     
     mins = tf.reduce_min(axis_points, axis=2, keepdims=True)
     maxs = tf.reduce_max(axis_points, axis=2, keepdims=True)
     mids = mins + ((maxs - mins) * 0.5)
     
-    left_child_prims_mask = tf.einsum('bij, bij -> bij', parent_mask, tf.cast(maxs <= left_offset, tf.float32))
-    right_child_prims_right_to_left_offset_mask = tf.einsum('bij, bij -> bij', parent_mask, tf.cast(mids > left_offset, tf.float32))
+    left_child_prims_mask = tf.einsum('bij, bij -> bij', parent_mask, tf.cast(maxs <= left_max_bound, tf.float32))
+    right_child_prims_mask = tf.einsum('bij, bij -> bij', parent_mask, tf.cast(mids > split_offset, tf.float32))
     
     above_max = tf.reduce_max(maxs) + 0.05
     
@@ -626,10 +627,9 @@ def qL_fn_SAH(beta, axis_points, parent_mask, parent_min, parent_max, offset):
     
     @tf.function
     def next_step(mask):
-        right_child_prims_mids = tf.einsum('bij, bij -> bij', mids, right_child_prims_right_to_left_offset_mask)
-        
-        right_child_prims_mids_non_zero = ((tf.abs(right_child_prims_right_to_left_offset_mask - 1)) * above_max) \
-            + right_child_prims_mids
+        right_child_prims_mids = tf.einsum('bij, bij -> bij', mids, right_child_prims_mask)
+
+        right_child_prims_mids_non_zero = ((tf.abs(right_child_prims_mask - 1)) * above_max) + right_child_prims_mids
 
         offset_above = tf.reduce_min(right_child_prims_mids_non_zero, axis=1, keepdims=True)
         prims_increase = tf.reduce_sum(tf.cast(tf.equal(right_child_prims_mids, offset_above), tf.float32), axis=1)
@@ -642,7 +642,6 @@ def qL_fn_SAH(beta, axis_points, parent_mask, parent_min, parent_max, offset):
     @tf.function
     def grad(upstream):
         offset_above, N1 = next_step(parent_mask)
-        split_offset = (offset[2])[..., tf.newaxis]
         slope = tf.math.divide_no_nan(N1 - N, offset_above[..., 0] - split_offset[..., 0])
         stepGrad = tf.clip_by_value(slope, 0.0, 1.0 / 0.0001)
       
@@ -652,7 +651,8 @@ def qL_fn_SAH(beta, axis_points, parent_mask, parent_min, parent_max, offset):
         upstream_grad = tf.einsum('bi, bi -> bi', upstream_grad, tf.cast(split_offset[..., 0] <= parent_max, tf.float32))
 
         return None, None, None, None, None, None, None, upstream_grad
-
+    
+    #grad(tf.constant(shape=(32,1), value=1.0, dtype=tf.float32)) # debug
     return N, grad
 
 
@@ -706,9 +706,10 @@ class pool_treelet_EPO(tf.Module) :
 
         parent_mask = tf.stop_gradient(nss_tree_common.build_mask(point_clouds, parent_bounds))
 
+        # ..._offset[2] is the pred_theta (split offset)
         Cnode_EPO = \
             self.p_eval(point_clouds, parent_normal, parent_offset, parent_bounds, node_bounds) * \
-            self.w_eval_EPO(point_clouds, node_bounds, parent_normal, parent_bounds, parent_mask)
+            self.w_eval_EPO(point_clouds, node_bounds, parent_normal, parent_bounds, parent_mask, parent_offset[2])
         
         Cnode_SAH = \
             self.p_eval(point_clouds, parent_normal, parent_offset, parent_bounds, node_bounds) * \
@@ -732,12 +733,12 @@ class pool_treelet_EPO(tf.Module) :
         Qleaf_SAH = QleafRoot_SAH * flag[0] + QleafL_SAH * flag[1] + QleafR_SAH * flag[2]
         Cleaf = Qleaf_SAH * self.w_eval_SAH(root_bounds, node_bounds, point_clouds) # only needed for unbalanced tree
         
-        CxL_EPO = self.t_isect_cost * self.w_eval_EPO(point_clouds, xL_bounds, self.nX, node_bounds, node_mask) # * qL_X
-        CxR_EPO = self.t_isect_cost * self.w_eval_EPO(point_clouds, xR_bounds, self.nX, node_bounds, node_mask) # * qR_X
-        CyL_EPO = self.t_isect_cost * self.w_eval_EPO(point_clouds, yL_bounds, self.nY, node_bounds, node_mask) # * qL_Y
-        CyR_EPO = self.t_isect_cost * self.w_eval_EPO(point_clouds, yR_bounds, self.nY, node_bounds, node_mask) # * qR_Y
-        CzL_EPO = self.t_isect_cost * self.w_eval_EPO(point_clouds, zL_bounds, self.nZ, node_bounds, node_mask) # * qL_Z 
-        CzR_EPO = self.t_isect_cost * self.w_eval_EPO(point_clouds, zR_bounds, self.nZ, node_bounds, node_mask) # * qR_Z
+        CxL_EPO = self.t_isect_cost * self.w_eval_EPO(point_clouds, xL_bounds, self.nX, node_bounds, node_mask, offsetX[2]) # * qL_X
+        CxR_EPO = self.t_isect_cost * self.w_eval_EPO(point_clouds, xR_bounds, self.nX, node_bounds, node_mask, offsetX[2]) # * qR_X
+        CyL_EPO = self.t_isect_cost * self.w_eval_EPO(point_clouds, yL_bounds, self.nY, node_bounds, node_mask, offsetY[2]) # * qL_Y
+        CyR_EPO = self.t_isect_cost * self.w_eval_EPO(point_clouds, yR_bounds, self.nY, node_bounds, node_mask, offsetY[2]) # * qR_Y
+        CzL_EPO = self.t_isect_cost * self.w_eval_EPO(point_clouds, zL_bounds, self.nZ, node_bounds, node_mask, offsetZ[2]) # * qL_Z 
+        CzR_EPO = self.t_isect_cost * self.w_eval_EPO(point_clouds, zR_bounds, self.nZ, node_bounds, node_mask, offsetZ[2]) # * qR_Z
         #Cleaf_EPO = (Cnode_EPO / self.p_eval(point_clouds, parent_normal, parent_offset, parent_bounds, node_bounds)) * self.t_isect_cost
 
 
@@ -760,7 +761,7 @@ class pool_treelet_EPO(tf.Module) :
         
         Cnode_EPO = \
             self.p_eval(point_clouds, parent_normal, parent_offset, parent_bounds, node_bounds) * \
-            self.w_eval_EPO(point_clouds, node_bounds, parent_normal, parent_bounds, parent_mask)
+            self.w_eval_EPO(point_clouds, node_bounds, parent_normal, parent_bounds, parent_mask, parent_offset[2])
         
         Cnode_SAH = \
             self.p_eval(point_clouds, parent_normal, parent_offset, parent_bounds, node_bounds) * \
@@ -909,7 +910,7 @@ class pool_treelet_EPO(tf.Module) :
         return nL * self.t_isect_cost, (N - nL) * self.t_isect_cost
     
     @tf.function
-    def w_eval_EPO(self, primitive_cloud, node_bounds, parent_normal, parent_bounds, parent_mask):
+    def w_eval_EPO(self, primitive_cloud, node_bounds, parent_normal, parent_bounds, parent_mask, parent_offset):
         axis_points = get_axis_points(primitive_cloud, parent_normal)
 
         parent_minmax = tf.einsum('bij, j -> bi', tf.reshape(parent_bounds, [-1, 2, 3]), parent_normal)
@@ -924,7 +925,8 @@ class pool_treelet_EPO(tf.Module) :
             parent_mask=parent_mask,  
             parent_min=parent_minmax[..., 0:1],
             parent_max=parent_minmax[..., 1:2],
-            primitive_cloud=primitive_cloud)#[0] # needed for debug mode when deactivating tf.function and tf.custom_gradient for wL_fn_EPO
+            primitive_cloud=primitive_cloud,
+            parent_offset=parent_offset)#[0] # needed for debug mode when deactivating tf.function and tf.custom_gradient for wL_fn_EPO
     
 
 @tf.function
@@ -995,7 +997,7 @@ def surface_prims_EPO(prims):
 
 @tf.function
 @tf.custom_gradient
-def wL_fn_EPO(node_bounds, node_min, node_max, beta, axis_points, parent_mask, parent_min, parent_max, primitive_cloud):
+def wL_fn_EPO(node_bounds, node_min, node_max, beta, axis_points, parent_mask, parent_min, parent_max, primitive_cloud, parent_offset):
 
     prims_isect_node_mask, prims_in_sibling_node_mask, prims_outside_sibling_intersecting_node_inside_points_mask = get_prims_intersecting_node_mask(\
                                                                                                             node_bounds, parent_mask, primitive_cloud)
@@ -1072,8 +1074,8 @@ def wL_fn_EPO(node_bounds, node_min, node_max, beta, axis_points, parent_mask, p
 
         upstream_grad = stepGrad
         upstream_grad = tf.einsum('bi, bi -> bi', upstream, upstream_grad)
-        upstream_grad = tf.einsum('bi, bi -> bi', upstream_grad, tf.cast(node_min >= parent_min, tf.float32))
-        upstream_grad = tf.einsum('bi, bi -> bi', upstream_grad, tf.cast(node_max <= parent_max, tf.float32))
+        upstream_grad = tf.einsum('bi, bi -> bi', upstream_grad, tf.cast(parent_offset >= parent_min, tf.float32))
+        upstream_grad = tf.einsum('bi, bi -> bi', upstream_grad, tf.cast(parent_offset <= parent_max, tf.float32))
 
         upstream_grad_max = tf.zeros_like(upstream_grad)
         upstream_grad_min = tf.zeros_like(upstream_grad)
@@ -1083,7 +1085,8 @@ def wL_fn_EPO(node_bounds, node_min, node_max, beta, axis_points, parent_mask, p
         else:
             # return for node_min
             upstream_grad_min = upstream_grad
-        return None, upstream_grad_min, upstream_grad_max, None, None, None, None, None, None
+        return None, upstream_grad_min, upstream_grad_max, None, None, None, None, None, None, None
 
+    #grad(tf.constant(shape=(32,1), value=1.0, dtype=tf.float32)) # debug
     # 0.5 -> approximation of primitives surfaces which acutally lay inside the volume
     return 0.5 * (surface_intersecting_prims / surface_prims_EPO(primitive_cloud)), grad
