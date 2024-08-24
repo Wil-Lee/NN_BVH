@@ -768,28 +768,6 @@ class pool_treelet_EPO(tf.Module) :
             self.w_eval_SAH(root_bounds, node_bounds, point_clouds)
 
         return Cnode_SAH, Cnode_EPO
-
-    @tf.function
-    def eval_interior_hard(self, point_clouds,
-        root_bounds, parent_bounds, parent_normal, parent_offset, node_bounds) :
-
-        parent_mask = tf.stop_gradient(nss_tree_common.build_mask(point_clouds, parent_bounds))
-        
-        # tbh, dunno what happens here, why it doesn't work
-        if tf.reduce_all(tf.equal(parent_normal, tf.constant([1,1,1], dtype=tf.float32))):
-            Cnode_EPO = \
-                self.p_eval(point_clouds, parent_normal, parent_offset, parent_bounds, node_bounds) * \
-                self.w_eval_EPO(point_clouds, node_bounds, parent_normal, parent_bounds, parent_mask, parent_offset)
-        else:
-            Cnode_EPO = \
-                self.p_eval(point_clouds, parent_normal, parent_offset, parent_bounds, node_bounds) * \
-                self.w_eval_EPO(point_clouds, node_bounds, parent_normal, parent_bounds, parent_mask, parent_offset[2])
-        
-        Cnode_SAH = \
-            self.p_eval(point_clouds, parent_normal, parent_offset, parent_bounds, node_bounds) * \
-            self.w_eval_SAH(root_bounds, node_bounds, point_clouds)
-
-        return Cnode_SAH, Cnode_EPO
     
     @tf.function
     def pool_leaves_soft(self, flag, point_clouds,
@@ -854,7 +832,7 @@ class pool_treelet_EPO(tf.Module) :
         branch_xL, branch_xR, branch_yL, branch_yR, branch_zL, branch_zR,
         offsetX, offsetY, offsetZ) :
         
-        Cnode_SAH, Cnode_EPO = self.eval_interior_hard(point_clouds,
+        Cnode_SAH, Cnode_EPO = self.eval_interior(point_clouds,
             root_bounds, parent_bounds, parent_normal, parent_offset, node_bounds)
         
         Cnode = (1 - self.EPO_SAH_alpha) * Cnode_SAH + self.EPO_SAH_alpha * Cnode_EPO

@@ -320,6 +320,9 @@ class spatialSplit_Model(keras.Model) :
     def predict_step(self, point_clouds) :
         root_node = self.neural_nodes[self.lvl(0)][0]
         self.set_initial_input(point_clouds, root_node)
+        if self.config['EPO']:
+            root_node.parent_offset = (root_node.parent_offset, root_node.parent_offset, root_node.parent_offset)
+
 
         for lvl_i in range(self.max_inter_lvl) :
             nodes = self.neural_nodes[self.lvl(lvl_i)]
