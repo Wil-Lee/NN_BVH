@@ -46,8 +46,8 @@ class neuralNode_splitter(tf.Module) :
 
         axis_points = get_axis_points(point_clouds, normal)
 
-        # TODO: if network doesn't behave as aspected - these bounds should be investigated
-        (theta_offset_left, theta_offset_right) = child_bounds(self.beta, axis_points, parent_mask, b0, b1, theta_offset)
+        theta_offset_left = left_child_bounds(self.beta, axis_points, parent_mask, b0, b1, theta_offset)
+        theta_offset_right = right_child_bounds(self.beta, axis_points, parent_mask, b0, b1, theta_offset)
 
         right_bmin_temp = tf.einsum('bk, k -> bk', node_bmin, 1.0 - normal) + tf.einsum('bi, k -> bk', theta_offset_right, normal)
 
@@ -108,56 +108,38 @@ class neuralNode_splitter(tf.Module) :
 
 @tf.function
 @tf.custom_gradient
-def child_bounds(beta, axis_points, parent_mask, parent_min, parent_max, offset):
-    offset = offset[..., tf.newaxis] #* 0 + 1.5 # debugging
+def left_child_bounds(beta, axis_points, parent_mask, parent_min, parent_max, offset):
+    """ Function takes offset and returns left max bound. left_child_bound: offset -> bound """
+    offset = offset[..., tf.newaxis]
     mins = tf.reduce_min(axis_points, axis=2, keepdims=True)
     maxs = tf.reduce_max(axis_points, axis=2, keepdims=True)
-    
-    prims_left_to_split_mask = tf.einsum('bij, bij -> bij', parent_mask, tf.cast(maxs < offset, tf.float32))
+    mids = mins + ((maxs - mins) * 0.5)
 
-    prims_isecting_split_mask = tf.einsum('bij, bij -> bij', parent_mask, \
-                                                tf.cast(tf.logical_and(mins <= offset, offset <= maxs), tf.float32))
-    
-    left_child_prims_isecting_split_mask = tf.einsum('bij, bij -> bij', prims_isecting_split_mask, \
-        tf.cast(tf.abs(offset - mins) >= tf.abs(maxs - offset), tf.float32))
-    
-    left_child_prims_mask = left_child_prims_isecting_split_mask + prims_left_to_split_mask
-
+    left_child_prims_mask = tf.einsum('bij, bij -> bij', parent_mask, tf.cast(offset >= mids, tf.float32))
     left_child_max_bound = tf.reduce_max(tf.einsum('bij, bij -> bij', maxs, left_child_prims_mask), axis=1)
-    
-    right_child_prims_mask = tf.cast(tf.logical_not(tf.cast(left_child_prims_mask, tf.bool)), tf.float32)
-    right_child_prims_mask = tf.einsum('bij, bij -> bij', parent_mask, right_child_prims_mask)
-
-    above_max = tf.reduce_max(maxs) + 1
-    # needed to eliminate 0s for reduce_min by adding total_max to all 0s of right child's primitives
-    right_child_prims_non_zero = ((right_child_prims_mask - 1) * (-1)) * above_max \
-        + tf.einsum('bij, bij -> bij', mins, right_child_prims_mask)
-    right_child_min_bound = tf.reduce_min(right_child_prims_non_zero, axis=1)
-    
-    N = tf.reduce_sum(left_child_prims_mask, axis=1)
 
     @tf.function
-    def next_step(mask, split_value):
-        right_child_mins = tf.einsum('bij, bij -> bij', mins, right_child_prims_mask)
-        right_child_maxs = tf.einsum('bij, bij -> bij', maxs, right_child_prims_mask)
+    def next_step(mask, offset):
+        above_max = tf.reduce_max(maxs) + 0.05
 
-        right_child_prims_mids = right_child_mins + ((right_child_maxs - right_child_mins) * 0.5)
-        right_child_prims_mids_non_zero = left_child_prims_mask * above_max \
-            + right_child_prims_mids
-        
-        offset_above = tf.reduce_min(right_child_prims_mids_non_zero, axis=1, keepdims=True)
-        prims_increase = tf.reduce_sum(tf.cast(tf.equal(right_child_prims_mids, offset_above), tf.float32), axis=1)
-        prims_increase = tf.maximum(prims_increase, tf.ones_like(prims_increase, dtype=tf.float32))
-        axis_max = tf.reduce_max(maxs, axis=1, keepdims=True)
-        offset_above = tf.math.minimum(offset_above, axis_max)
+        prims_right_to_left_max_bound_mask = tf.einsum('bij, bij -> bij', parent_mask, tf.cast(left_child_max_bound[..., tf.newaxis] < mids, tf.float32))
+        mids_prim_right_to_left_max_bound = tf.einsum('bij, bij -> bij', mids, prims_right_to_left_max_bound_mask)
 
-        N1 = N + prims_increase
-        return offset_above, N1
+        prims_right_to_left_max_bound_mask_scaled_inversed = tf.abs(prims_right_to_left_max_bound_mask - 1) * above_max
+        mids_prim_right_to_left_max_bound_non_zero = mids_prim_right_to_left_max_bound + prims_right_to_left_max_bound_mask_scaled_inversed
+        offset_above = tf.reduce_min(mids_prim_right_to_left_max_bound_non_zero, axis=1, keepdims=True)
+
+        offset_above_mask = tf.cast(tf.equal(mids_prim_right_to_left_max_bound, offset_above), tf.float32)
+        offset_above_prims_max = tf.einsum('bij, bij -> bij', maxs, offset_above_mask)
+        bound_above = tf.reduce_max(offset_above_prims_max, axis=1, keepdims=True)
+        # edge case check if there are no right prims
+
+        return tf.squeeze(bound_above)[..., tf.newaxis], offset_above
     
     @tf.function
-    def grad(upstream, _):
-        offset_above, N1 = next_step(parent_mask, offset)
-        slope = tf.math.divide_no_nan(N1 - N, offset_above[..., 0] - offset[..., 0])
+    def grad(upstream):
+        bound_above, offset_above = next_step(parent_mask, offset)
+        slope = tf.math.divide_no_nan(bound_above - left_child_max_bound, offset_above[..., 0] - offset[..., 0])
         stepGrad = tf.clip_by_value(slope, 0.0, 1.0 / 0.0001)
 
         upstream_grad = stepGrad
@@ -166,9 +148,61 @@ def child_bounds(beta, axis_points, parent_mask, parent_min, parent_max, offset)
         upstream_grad = tf.einsum('bi, bi -> bi', upstream_grad, tf.cast(offset[..., 0] <= parent_max, tf.float32))
         return None, None, None, None, None, upstream_grad
 
-    #grad(tf.constant(shape=(32,1), value=1.0, dtype=tf.float32), 1) # debug
+    #grad(tf.constant(shape=(32,1), value=1.0, dtype=tf.float32)) # debug
+    return left_child_max_bound, grad
 
-    return (left_child_max_bound, right_child_min_bound), grad
+
+@tf.function
+@tf.custom_gradient
+def right_child_bounds(beta, axis_points, parent_mask, parent_min, parent_max, offset):
+    """ Function takes offset and returns right min bound. right_child_bound: offset -> bound """
+    offset = offset[..., tf.newaxis]
+    mins = tf.reduce_min(axis_points, axis=2, keepdims=True)
+    maxs = tf.reduce_max(axis_points, axis=2, keepdims=True)
+    mids = mins + ((maxs - mins) * 0.5)
+
+    right_child_prims_mask = tf.einsum('bij, bij -> bij', parent_mask, tf.cast(offset < mids, tf.float32))
+
+    above_max = tf.reduce_max(maxs) + 0.05
+
+    # needed to eliminate 0s for reduce_min by adding total_max to all 0s of right child's primitives
+    right_child_prims_mask_scaled_inversed = tf.abs(right_child_prims_mask - 1) * above_max
+
+    right_child_prims_non_zero = right_child_prims_mask_scaled_inversed + tf.einsum('bij, bij -> bij', mins, right_child_prims_mask)
+    right_child_min_bound = tf.reduce_min(right_child_prims_non_zero, axis=1)
+
+    @tf.function
+    def next_step(mask, offset):
+        prims_left_to_right_min_bound_mask = tf.einsum('bij, bij -> bij', parent_mask, tf.cast(right_child_min_bound[..., tf.newaxis] >= mids, tf.float32))
+        mids_prim_left_to_right_min_bound = tf.einsum('bij, bij -> bij', mids, prims_left_to_right_min_bound_mask)
+
+        offset_below = tf.reduce_max(mids_prim_left_to_right_min_bound, axis=1, keepdims=True)
+
+        offset_below_mask = tf.cast(tf.equal(mids_prim_left_to_right_min_bound, offset_below), tf.float32)
+        offset_below_prims_mins = tf.einsum('bij, bij -> bij', mins, offset_below_mask)
+        offset_below_mask_scaled_inversed = tf.abs(offset_below_mask - 1) * above_max
+        offset_below_prims_max_non_zero = offset_below_prims_mins + offset_below_mask_scaled_inversed
+        bound_below = tf.reduce_min(offset_below_prims_max_non_zero, axis=1, keepdims=True)
+
+        return tf.squeeze(bound_below)[..., tf.newaxis], offset_below
+    
+    @tf.function
+    def grad(upstream):
+        bound_below, offset_below = next_step(parent_mask, offset)
+        # (-1) needed because right child min bound getting bigger means bound_below getting smaller
+        # -> to minimize the function: offset needs to get bigger; to maximize the function: offset needs to get smaller
+        # -> therefore gradient has to be negative!
+        slope = (-1) * tf.math.divide_no_nan(right_child_min_bound - bound_below, offset[..., 0] - offset_below[..., 0] )
+        stepGrad = tf.clip_by_value(slope, 0.0, 1.0 / 0.0001)
+
+        upstream_grad = stepGrad
+        upstream_grad = tf.einsum('bi, bi -> bi', upstream, upstream_grad)
+        upstream_grad = tf.einsum('bi, bi -> bi', upstream_grad, tf.cast(offset[..., 0] >= parent_min, tf.float32))
+        upstream_grad = tf.einsum('bi, bi -> bi', upstream_grad, tf.cast(offset[..., 0] <= parent_max, tf.float32))
+        return None, None, None, None, None, upstream_grad
+
+    #grad(tf.constant(shape=(32,1), value=1.0, dtype=tf.float32)) # debug
+    return right_child_min_bound, grad
 
 
 @tf.function
@@ -297,7 +331,7 @@ def qL_fn(beta, axis_points, parent_mask, parent_min, parent_max, offset) :
         slope = tf.math.divide_no_nan(N1 - N, offset_above[..., 0] - offset[..., 0])
         # clips the difference quotient between the current offset and the next offset where the size of the left child points increases
         stepGrad = tf.clip_by_value(slope, 0.0, 1.0 / 0.0001)
-
+        
         upstream_grad = stepGrad
         # combines the local gradient with the upstream gradient
         upstream_grad = tf.einsum('bi, bi -> bi', upstream, upstream_grad)
@@ -586,7 +620,7 @@ def qL_fn_SAH(beta, axis_points, parent_mask, parent_min, parent_max, offset):
     left_child_prims_mask = tf.einsum('bij, bij -> bij', parent_mask, tf.cast(maxs <= left_offset, tf.float32))
     right_child_prims_right_to_left_offset_mask = tf.einsum('bij, bij -> bij', parent_mask, tf.cast(mids > left_offset, tf.float32))
     
-    above_max = tf.reduce_max(maxs) + 1
+    above_max = tf.reduce_max(maxs) + 0.05
     
     N = tf.reduce_sum(left_child_prims_mask, axis=1)
     
@@ -611,14 +645,14 @@ def qL_fn_SAH(beta, axis_points, parent_mask, parent_min, parent_max, offset):
         split_offset = (offset[2])[..., tf.newaxis]
         slope = tf.math.divide_no_nan(N1 - N, offset_above[..., 0] - split_offset[..., 0])
         stepGrad = tf.clip_by_value(slope, 0.0, 1.0 / 0.0001)
-
+      
         upstream_grad = stepGrad
         upstream_grad = tf.einsum('bi, bi -> bi', upstream, upstream_grad)
         upstream_grad = tf.einsum('bi, bi -> bi', upstream_grad, tf.cast(split_offset[..., 0] >= parent_min, tf.float32))
         upstream_grad = tf.einsum('bi, bi -> bi', upstream_grad, tf.cast(split_offset[..., 0] <= parent_max, tf.float32))
 
         return None, None, None, None, None, None, None, upstream_grad
-    
+
     return N, grad
 
 

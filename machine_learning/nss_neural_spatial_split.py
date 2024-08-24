@@ -189,7 +189,7 @@ class spatialSplit_Model(keras.Model) :
                         # prediction lthetas -> split axis offset (x-splitaxis, y split-axis, z-splitaxis)
                         pred_lthetas, scale, translate, = encoder([point_clouds, node.bounds])
                     
-                    #pred_lthetas = random_values = tf.random.uniform((32,3), minval=0.0, maxval=1.0) # debug
+                    #pred_lthetas = tf.random.uniform((32,3), minval=0.0, maxval=1.0) # debug
                     #tf.print("upstream: ", tf.squeeze(upstream), summarize=-1)
                     tape.watch(pred_lthetas)
 
