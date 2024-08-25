@@ -168,7 +168,7 @@ class recursive_tree_level_encoder_EPO(tf.keras.layers.Layer) :
         features = tf.einsum('bijf, bik -> bijf', features, mask)
         return (features, tf.squeeze(xyz_min), tf.squeeze(xyz_max))
 
-    #@tf.function
+    @tf.function
     def call(self, input) :
         point_cloud, node_bounds = input
 
