@@ -1,5 +1,6 @@
 
 import sys
+import nn_types
 
 class AABB:
 
@@ -17,6 +18,40 @@ class AABB:
     
     def copy(self):
         return AABB(self.x_min, self.y_min, self.z_min, self.x_max, self.y_max, self.z_max)
+    
+    def get_min(self, axis: nn_types.Axis):
+        if axis == nn_types.Axis.x:
+            return self.x_min
+        if axis == nn_types.Axis.y:
+            return self.y_min
+        if axis == nn_types.Axis.z:
+            return self.y_min
+        return - 1
+    
+    def get_max(self, axis: nn_types.Axis):
+        if axis == nn_types.Axis.x:
+            return self.x_max
+        if axis == nn_types.Axis.y:
+            return self.y_max
+        if axis == nn_types.Axis.z:
+            return self.y_max
+        return - 1
+    
+    def set_min(self, axis: nn_types.Axis, new_min: float):
+        if axis == nn_types.Axis.x:
+            self.x_min = new_min
+        if axis == nn_types.Axis.y:
+            self.y_min = new_min
+        if axis == nn_types.Axis.z:
+            self.z_min = new_min
+    
+    def set_max(self, axis: nn_types.Axis, new_max: float):
+        if axis == nn_types.Axis.x:
+            self.x_max = new_max
+        if axis == nn_types.Axis.y:
+            self.y_max = new_max
+        if axis == nn_types.Axis.z:
+            self.z_max = new_max
 
 # Returns the AABB which encloses all vertices given in the argument.
 def get_AABB_from_vertices(vertices):

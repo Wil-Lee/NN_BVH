@@ -1,19 +1,10 @@
 from dataclasses import dataclass
+import math
 from nn_AABB import *
 from nn_types import *
+import os
 import sys
 
-# maybe needed for later if model is implemented
-"""
-class BVH:
-    def __init__(self, scene_primitives: list[Primitive3], scene_aabb: AABB, max_prim_per_leaf: int=2):
-        self.head: BVHNode = BVHNode(scene_aabb, scene_primitives)
-        self.max_prim_per_leaf: int = max_prim_per_leaf
-    
-    def build_recursive(self):
-        # TODO: add recursive build of bvh
-        return
-"""
 
 MAX_PRIMITIVES_PER_LEAF = 2
 
@@ -44,6 +35,7 @@ class BVHNode:
         
         Returns true if node is not a leaf, otherwise false.
         """
+        tight_bounds = True
 
         if self.is_leaf:
             return False
@@ -54,7 +46,7 @@ class BVHNode:
         right_primitives = []
 
         for i in range(len(self.primitives)):
-            # the maximum extend of the primitive in regard to the current split
+            # the maximum extent of the primitive in regard to the current split
             max_primitive = max(self.primitives[i][0][split_axis_value], 
                                 self.primitives[i][1][split_axis_value], 
                                 self.primitives[i][2][split_axis_value])
@@ -63,7 +55,7 @@ class BVHNode:
                 left_primitives.append(self.primitives[i])
                 continue
             
-            # the minimum extend of the primitive in regard to the current split
+            # the minimum extent of the primitive in regard to the current split
             min_primitive = min(self.primitives[i][0][split_axis_value], 
                                 self.primitives[i][1][split_axis_value], 
                                 self.primitives[i][2][split_axis_value])
@@ -80,9 +72,30 @@ class BVHNode:
             else:
                 right_primitives.append(self.primitives[i])
                 continue
+        
+        if tight_bounds:
+            left_aabb = get_AABB_from_primitives(left_primitives)
+            right_aabb = get_AABB_from_primitives(right_primitives)
+        else:
+            left_aabb = self.aabb.copy()
+            right_aabb = self.aabb.copy()
+            left_max = self.aabb.get_min(split_axis)
+            right_min = self.aabb.get_max(split_axis)
+            for prim in left_primitives:
+                max_prim = max(prim[0][split_axis_value], 
+                               prim[1][split_axis_value], 
+                               prim[2][split_axis_value])
+                if  max_prim > left_max:
+                    left_max = max_prim
+            for prim in right_primitives:
+                min_prim = min(prim[0][split_axis_value], 
+                               prim[1][split_axis_value], 
+                               prim[2][split_axis_value])
+                if  min_prim < right_min:
+                    right_min = min_prim
+            left_aabb.set_max(split_axis, left_max)
+            right_aabb.set_min(split_axis, right_min)
 
-        left_aabb = get_AABB_from_primitives(left_primitives)
-        right_aabb = get_AABB_from_primitives(right_primitives)
         self.left_child = BVHNode(left_aabb, left_primitives)
         self.left_child.parent = self
         self.right_child = BVHNode(right_aabb, right_primitives)
@@ -261,8 +274,6 @@ def compute_cost_without_epo(task: Tuple[Axis, float, BVHNode, list[Primitive3],
                 best_split.axis = axis
         return  best_split.cost, best_split.cost, 0, best_split.axis, best_split.offset, [], []
 
-import os
-import math
 
 def build_greedy_SAH_EPO_tree_multi_thread(root_node: BVHNode, alpha: float, levels: int, use_epo: bool=False):
 
