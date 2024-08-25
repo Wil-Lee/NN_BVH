@@ -104,7 +104,8 @@ class recursive_tree_level_encoder_EPO(tf.keras.layers.Layer) :
         super(recursive_tree_level_encoder_EPO, self).__init__(name='tree_level_encoder_{0}'.format(lvl))
 
         self.projection_layer = self._get_linear2D(1, (1, 1), (1, 1), 'proj_layer_' + str(lvl), activ='linear', kernel_init='glorot_uniform')
-        self.layer1 = self._get_linear2D(pConfig['dense_units_point_enc'], (1, 3), (1, 3), 'Conv_layer_1_' + str(lvl), activ='relu', kernel_init='he_uniform')
+        self.layer0 = self._get_linear2D(pConfig['dense_units_point_enc'], (1, 3), (1, 3), 'Conv_layer_0_' + str(lvl), activ='relu', kernel_init='he_uniform') # *2 to first argument
+        self.layer1 = self._get_linear2D(pConfig['dense_units_point_enc'], (1, 1), (1, 1), 'Conv_layer_1_' + str(lvl), activ='relu', kernel_init='he_uniform')
         self.layer2 = self._get_linear2D(pConfig['dense_units_point_enc'], (1, 1), (1, 1), 'Conv_layer_2_' + str(lvl), activ='relu', kernel_init='he_uniform')
         self.layer3 = self._get_linear2D(pConfig['dense_units_point_enc'], (1, 1), (1, 1), 'Conv_layer_3_' + str(lvl), activ='relu', kernel_init='he_uniform')
         self.layer4 = self._get_linear2D(pConfig['dense_units_point_enc'], (1, 1), (1, 1), 'Conv_layer_4_' + str(lvl), activ='relu', kernel_init='he_uniform')
@@ -167,7 +168,7 @@ class recursive_tree_level_encoder_EPO(tf.keras.layers.Layer) :
         features = tf.einsum('bijf, bik -> bijf', features, mask)
         return (features, tf.squeeze(xyz_min), tf.squeeze(xyz_max))
 
-    @tf.function
+    #@tf.function
     def call(self, input) :
         point_cloud, node_bounds = input
 
@@ -184,6 +185,7 @@ class recursive_tree_level_encoder_EPO(tf.keras.layers.Layer) :
         features, min_values, max_values = self.object_normalize(point_cloud, node_mask)
 
         # the acutal convolution is performed here:
+        features = self.layer0(features)
         features = self.layer1(features)
         features = self.layer2(features)
         features = self.layer3(features)

@@ -186,7 +186,7 @@ class spatialSplit_Model(keras.Model) :
 
                 for node_i, node in enumerate(nodes) :
                     with tape.stop_recording() :
-                        # prediction lthetas -> split axis offset (x-splitaxis, y split-axis, z-splitaxis)
+                        # prediction lthetas -> split axis offset (x-splitaxis, y split-axis, z-splitaxis) (corresponds to lambda in paper)
                         pred_lthetas, scale, translate, = encoder([point_clouds, node.bounds])
                     
                     #pred_lthetas = tf.random.uniform((32,3), minval=0.0, maxval=1.0) # debug
