@@ -211,8 +211,6 @@ class spatialSplit_Model(keras.Model) :
                     pen_loss += self.penalty_loss_fn(pred_lthetas,
                         tf.constant([self.max_inter_lvl], dtype=tf.int32),
                         tf.constant([lvl_i], dtype=tf.int32))
-                    
-                    # nachdem alle änderungen funktionieren müssen diese auch auf predict step übertragen werden! -> pool-hard
 
                     offsets, bboxes = self.splitter(node.bounds, pred_thetas, node.parent_mask, point_clouds)
 
