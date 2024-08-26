@@ -170,12 +170,10 @@ class recursive_tree_level_encoder_EPO(tf.keras.layers.Layer) :
 
     @tf.function
     def call(self, input) :
-        point_cloud, node_bounds = input
+        point_cloud, node_bounds, node_mask = input
 
         node_bmin = node_bounds[:, 0:3]
         node_bmax = node_bounds[:, 3:6] 
-
-        node_mask = tf.stop_gradient(nss_tree_common.build_mask_EPO(point_cloud, node_bounds))
 
         # This code from here on implements Fig 1 of the paper
         # sets all points which are not inside the current bounding volume to 0

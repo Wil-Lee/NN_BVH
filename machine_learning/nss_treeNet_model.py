@@ -29,7 +29,6 @@ class neural_kdtree :
         self.mModel = nss_neural_spatial_split.spatialSplit_Model(pConfig=config)
         self.mModel.compile()
 
-
 ####################################################### EDIT ##################################################################################
 
     def train_EPO(self, pIsCheckpoint=False) :

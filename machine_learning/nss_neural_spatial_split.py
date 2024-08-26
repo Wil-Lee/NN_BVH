@@ -5,6 +5,7 @@ import numpy as np
 import nss_tree_modules
 import nss_tree_common
 import nss_custom_layers
+from typing import Dict, List
 
 class spatialSplit_Model(keras.Model) :
     def __init__(self, pConfig) :
@@ -13,7 +14,7 @@ class spatialSplit_Model(keras.Model) :
         self.treeLevels = self.config['tree_levels']
 
         self.batch_size = pConfig['batch_size']
-        self.splitter = nss_tree_modules.neuralNode_splitter(pConfig)
+        self.splitter = nss_tree_modules.neuralNode_splitter_EPO(pConfig) if pConfig['EPO'] else nss_tree_modules.neuralNode_splitter(pConfig)
 
         self.w_eval = self.config['weight_fn']
         self.p_eval = self.config['p_fn']
@@ -77,8 +78,9 @@ class spatialSplit_Model(keras.Model) :
 
                 self.greedy_nodes[self.lvl(lvl_i)] += [node,]
 
+    
     def __make_empty_tree_6wide(self) :
-        self.neural_nodes = {}
+        self.neural_nodes: Dict[str, List[nss_tree_common.neural_spatial_node]]  = {}
 
         self.name_map = {
             0 : 'x.L.',
@@ -136,7 +138,8 @@ class spatialSplit_Model(keras.Model) :
         return flag
     
 
-    def set_initial_input(self, point_cloud, root_node) :
+    def set_initial_input(self, point_cloud, root_node: nss_tree_common.neural_spatial_node) :
+        dummy_offset = tf.ones(shape=(tf.shape(point_cloud)[0], 1))
         if self.config['EPO']:
             x_coords = point_cloud[:,:,:3]
             y_coords = point_cloud[:,:,3:6]
@@ -150,15 +153,19 @@ class spatialSplit_Model(keras.Model) :
             
             bmin = tf.concat([min_x, min_y, min_z], axis=1)
             bmax = tf.concat([max_x, max_y, max_z], axis=1)
+
+            root_node.parent_offset = (dummy_offset, dummy_offset, dummy_offset)
         else:
             bmin = tf.reduce_min(point_cloud, axis=1)
             bmax = tf.reduce_max(point_cloud, axis=1)
+            root_node.parent_offset = dummy_offset
 
         root_bounds = tf.concat([bmin, bmax], axis=-1)
         root_node.bounds = root_bounds
         root_node.parent_bounds = root_bounds
         root_node.parent_normal = tf.constant([1.0, 1.0, 1.0], tf.float32)
-        root_node.parent_offset = tf.ones(shape=(tf.shape(point_cloud)[0], 1))
+        root_node.mask = tf.ones(shape=(point_cloud.shape[0], point_cloud.shape[1], 1))
+        root_node.parent_mask = tf.ones(shape=(point_cloud.shape[0], point_cloud.shape[1], 1))
 
     def get_trainable_weights(self) :
         trainable_weights = []
@@ -168,7 +175,7 @@ class spatialSplit_Model(keras.Model) :
 
         return trainable_weights
 
-    def deferred_train_step(self, point_clouds) :
+    def deferred_train_step_EPO(self, point_clouds) :
         root_node = self.neural_nodes[self.lvl(0)][0]
         self.set_initial_input(point_clouds, root_node)
         per_lvl_lthetas = [[None] * len(self.neural_nodes[self.lvl(lvl_i)]) for lvl_i in range(self.max_inter_lvl) ]
@@ -187,9 +194,9 @@ class spatialSplit_Model(keras.Model) :
                 for node_i, node in enumerate(nodes) :
                     with tape.stop_recording() :
                         # prediction lthetas -> split axis offset (x-splitaxis, y split-axis, z-splitaxis) (corresponds to lambda in paper)
-                        pred_lthetas, scale, translate, = encoder([point_clouds, node.bounds])
+                        pred_lthetas, scale, translate, = encoder([point_clouds, node.bounds, node.mask])
                     
-                    #pred_lthetas = tf.random.uniform((32,3), minval=0.0, maxval=1.0) # debug
+                    #pred_lthetas = tf.random.uniform((64,3), minval=0.0, maxval=1.0) # debug
                     #tf.print("upstream: ", tf.squeeze(upstream), summarize=-1)
                     tape.watch(pred_lthetas)
 
@@ -204,8 +211,10 @@ class spatialSplit_Model(keras.Model) :
                     pen_loss += self.penalty_loss_fn(pred_lthetas,
                         tf.constant([self.max_inter_lvl], dtype=tf.int32),
                         tf.constant([lvl_i], dtype=tf.int32))
+                    
+                    # nachdem alle änderungen funktionieren müssen diese auch auf predict step übertragen werden! -> pool-hard
 
-                    offsets, bboxes = self.splitter(node.bounds, pred_thetas, point_clouds)
+                    offsets, bboxes = self.splitter(node.bounds, pred_thetas, node.parent_mask, point_clouds)
 
                     # iterates over the children of the splitted node -> two children per x-axis (y-axis and z-axis)
                     for child_i in range(self.branch_size) : # branchsize = 6 - refers to the amount of nodes one node gets splitted to
@@ -216,12 +225,21 @@ class spatialSplit_Model(keras.Model) :
                         if child_i % 6 == 0 or child_i % 6 == 1 :
                             child_node.parent_normal = self.nX
                             child_node.parent_offset = offsets[0]
+                            child_node.parent_mask = node.mask
+                            child_node.mask = tf.stop_gradient(nss_tree_common.build_mask_EPO(point_clouds, child_node.bounds,\
+                                child_node.parent_offset, child_node.parent_normal, child_node.parent_mask, child_i % 2))
                         elif child_i % 6 == 2 or child_i % 6 == 3:
                             child_node.parent_normal = self.nY
                             child_node.parent_offset = offsets[1]
+                            child_node.parent_mask = node.mask
+                            child_node.mask = tf.stop_gradient(nss_tree_common.build_mask_EPO(point_clouds, child_node.bounds,\
+                                child_node.parent_offset, child_node.parent_normal, child_node.parent_mask, child_i % 2))
                         elif child_i % 6 == 4 or child_i % 6 == 5 :
                             child_node.parent_normal = self.nZ
                             child_node.parent_offset = offsets[2]
+                            child_node.parent_mask = node.mask
+                            child_node.mask = tf.stop_gradient(nss_tree_common.build_mask_EPO(point_clouds, child_node.bounds,\
+                                child_node.parent_offset, child_node.parent_normal, child_node.parent_mask, child_i % 2))
 
 
             agglomerative_pooling = {lvl_i : [] for lvl_i in range(len(self.neural_nodes) - 1)}
@@ -233,7 +251,8 @@ class spatialSplit_Model(keras.Model) :
 
                 agglomerative_pooling[self.pooling_lvl] += [
                     self.pooling_treelet.pool_leaves_soft(flag, point_clouds,
-                        root_node.bounds, node.parent_bounds, node.parent_normal, node.parent_offset, node.bounds,
+                        root_node.bounds, node.parent_bounds, node.parent_normal, node.parent_offset, node.parent_mask, 
+                        node.bounds, node.mask,
                         treelet_leaves[0].parent_offset, treelet_leaves[2].parent_offset, treelet_leaves[4].parent_offset,
                         treelet_leaves[0].bounds, treelet_leaves[1].bounds,
                         treelet_leaves[2].bounds, treelet_leaves[3].bounds,
@@ -250,7 +269,7 @@ class spatialSplit_Model(keras.Model) :
                     flag = self.__build_flag(lvl_i, node_i)
 
                     C_recur = self.pooling_treelet.pool_interior_soft(flag, point_clouds,
-                        root_node.bounds, node.parent_bounds, node.parent_normal, node.parent_offset, node.bounds,
+                        root_node.bounds, node.parent_bounds, node.parent_normal, node.parent_offset, node.parent_mask, node.bounds,
                         subtree_branches[0][0], subtree_branches[1][0],
                         subtree_branches[2][0], subtree_branches[3][0],
                         subtree_branches[4][0], subtree_branches[5][0],
@@ -280,7 +299,7 @@ class spatialSplit_Model(keras.Model) :
                 upstream_grad_node_i = loss_over_offset[lvl_i][node_i]
 
                 with tf.GradientTape() as tape :
-                    pred_lthetas, _, _ = offset_encoder([point_clouds, node.bounds])
+                    pred_lthetas, _, _ = offset_encoder([point_clouds, node.bounds, node.mask])
                
                 loss_over_encoder = tape.gradient(pred_lthetas,
                     offset_encoder.trainable_weights,
@@ -300,7 +319,10 @@ class spatialSplit_Model(keras.Model) :
             grad, batch_log
 
     def train_step(self, epoch, step, input) :
-        dict_losses, grads, batch_log = self.deferred_train_step(input) # adapt train step here
+        if self.config['EPO']:
+            dict_losses, grads, batch_log = self.deferred_train_step_EPO(input)
+        else:
+            dict_losses, grads, batch_log = self.deferred_train_step(input)
         trainable_weights = self.get_trainable_weights()
 
         flat_grads = [grad for lvl_grads in grads for grad in lvl_grads]
@@ -315,14 +337,93 @@ class spatialSplit_Model(keras.Model) :
 
     def test_step(self, input) :
         return {}
+    
+    #@tf.function
+    def predict_step_EPO(self, point_clouds) :
+        root_node = self.neural_nodes[self.lvl(0)][0]
+        self.set_initial_input(point_clouds, root_node)
+
+        for lvl_i in range(self.max_inter_lvl) :
+            nodes = self.neural_nodes[self.lvl(lvl_i)]
+            child_nodes = self.neural_nodes[self.lvl(lvl_i + 1)]
+            encoder = self.offset_encoders[lvl_i]
+
+            for node_i, node in enumerate(nodes) :
+                pred_lthetas, scale, translate = encoder([point_clouds, node.bounds, node.mask])
+                pred_thetas = tf.clip_by_value(pred_lthetas * scale + translate, 0.0, 1.0)
+                offsets, bboxes = self.splitter(node.bounds, pred_thetas, node.parent_mask, point_clouds)
+
+                for child_i in range(self.branch_size) :
+                    child_node = child_nodes[6 * node_i + child_i]
+                    child_node.bounds = bboxes[child_i]
+                    child_node.parent_bounds = node.bounds
+
+                    if child_i % 6 == 0 or child_i % 6 == 1 :
+                        child_node.parent_normal = self.nX
+                        child_node.parent_offset = offsets[0]
+                        child_node.parent_mask = node.mask
+                        child_node.mask = tf.stop_gradient(nss_tree_common.build_mask_EPO(point_clouds, child_node.bounds,\
+                            child_node.parent_offset, child_node.parent_normal, child_node.parent_mask, child_i % 2))
+                    elif child_i % 6 == 2 or child_i % 6 == 3:
+                        child_node.parent_normal = self.nY
+                        child_node.parent_offset = offsets[1]
+                        child_node.parent_mask = node.mask
+                        child_node.mask = tf.stop_gradient(nss_tree_common.build_mask_EPO(point_clouds, child_node.bounds,\
+                            child_node.parent_offset, child_node.parent_normal, child_node.parent_mask, child_i % 2))
+                    elif child_i % 6 == 4 or child_i % 6 == 5 :
+                        child_node.parent_normal = self.nZ
+                        child_node.parent_offset = offsets[2]
+                        child_node.parent_mask = node.mask
+                        child_node.mask = tf.stop_gradient(nss_tree_common.build_mask_EPO(point_clouds, child_node.bounds,\
+                            child_node.parent_offset, child_node.parent_normal, child_node.parent_mask, child_i % 2))
+
+        agglomerative_pooling = {lvl_i : [] for lvl_i in range(len(self.neural_nodes) - 1)}
+        leaves = self.neural_nodes[self.lvl(self.pooling_lvl + 1)]
+
+        for node_i, node in enumerate(self.neural_nodes[self.lvl(self.pooling_lvl)]) :
+            treelet_leaves = leaves[node_i * self.branch_size : node_i * self.branch_size + self.branch_size]
+            flag = self.__build_flag(self.max_inter_lvl, node_i)
+
+            agglomerative_pooling[self.pooling_lvl] += [
+                self.pooling_treelet.pool_leaves_hard(flag, point_clouds,
+                    root_node.bounds, node.parent_bounds, node.parent_normal, node.parent_offset, node.parent_mask, node.bounds, node.mask,
+                    treelet_leaves[0].parent_offset, treelet_leaves[2].parent_offset, treelet_leaves[4].parent_offset,
+                    treelet_leaves[0].bounds, treelet_leaves[1].bounds,
+                    treelet_leaves[2].bounds, treelet_leaves[3].bounds,
+                    treelet_leaves[4].bounds, treelet_leaves[5].bounds),]
+
+        for lvl_i in range(self.pooling_lvl - 1, -1, -1) :
+            branches = agglomerative_pooling[lvl_i + 1]
+            child_nodes = self.neural_nodes[self.lvl(lvl_i + 1)]
+
+            for branch_i in range(0, len(branches), self.branch_size) :
+                subtree_branches = branches[branch_i:branch_i + self.branch_size]
+                subtree_children = child_nodes[branch_i:branch_i + self.branch_size]
+                node_i = branch_i // 6
+                node = self.neural_nodes[self.lvl(lvl_i)][node_i]
+                flag = self.__build_flag(lvl_i, node_i)
+
+                agglomerative_pooling[lvl_i] += [
+                    self.pooling_treelet.pool_interior_hard(flag, point_clouds,
+                        root_node.bounds, node.parent_bounds, node.parent_normal, node.parent_offset, node.parent_mask, node.bounds,
+                        subtree_branches[0], subtree_branches[1],
+                        subtree_branches[2], subtree_branches[3],
+                        subtree_branches[4], subtree_branches[5],
+                        subtree_children[0].parent_offset, subtree_children[2].parent_offset, subtree_children[4].parent_offset),]
+
+            agglomerative_pooling[lvl_i + 1] = []
+
+        tree_cost = agglomerative_pooling[0][0][0]
+        tree_structure = agglomerative_pooling[0][0][1]
+        return (tree_cost, tree_structure)
+    
 
     #@tf.function
-    def predict_step(self, point_clouds) :
+    def predict_step_SAH(self, point_clouds) :
         root_node = self.neural_nodes[self.lvl(0)][0]
         self.set_initial_input(point_clouds, root_node)
         if self.config['EPO']:
             root_node.parent_offset = (root_node.parent_offset, root_node.parent_offset, root_node.parent_offset)
-
 
         for lvl_i in range(self.max_inter_lvl) :
             nodes = self.neural_nodes[self.lvl(lvl_i)]
@@ -388,6 +489,12 @@ class spatialSplit_Model(keras.Model) :
         tree_cost = agglomerative_pooling[0][0][0]
         tree_structure = agglomerative_pooling[0][0][1]
         return (tree_cost, tree_structure)
+    
+    def predict_step(self, point_clouds):
+        if self.config['EPO']:
+            return self.predict_step_EPO(point_clouds)
+        else:
+            return self.predict_step_SAH(point_clouds)
 
     #@tf.function
     def greedy_predict_step(self, point_clouds) :
@@ -561,3 +668,135 @@ class spatialSplit_Model(keras.Model) :
                     pred_trees = tf.concat([pred_trees, plane], axis=1)
 
         return pred_trees
+    
+
+    def deferred_train_step(self, point_clouds) :
+        root_node = self.neural_nodes[self.lvl(0)][0]
+        self.set_initial_input(point_clouds, root_node)
+        per_lvl_lthetas = [[None] * len(self.neural_nodes[self.lvl(lvl_i)]) for lvl_i in range(self.max_inter_lvl) ]
+        num_out_of_bounds_thetas = tf.zeros(shape=(), dtype=tf.int32)
+
+        # GradientTape collects operations needed to calculate the gradient
+        with tf.GradientTape(persistent=False) as tape :
+            pen_loss = tf.zeros(shape=())
+            # iterate over each node of the prebuild tree - every levels
+            for lvl_i in range(self.max_inter_lvl) :
+                nodes = self.neural_nodes[self.lvl(lvl_i)]
+                child_nodes = self.neural_nodes[self.lvl(lvl_i + 1)]
+                # each tree level has its own encoder
+                encoder = self.offset_encoders[lvl_i]
+
+                for node_i, node in enumerate(nodes) :
+                    with tape.stop_recording() :
+                        # prediction lthetas -> split axis offset (x-splitaxis, y split-axis, z-splitaxis) (corresponds to lambda in paper)
+                        pred_lthetas, scale, translate, = encoder([point_clouds, node.bounds])
+                    
+                    #pred_lthetas = tf.random.uniform((32,3), minval=0.0, maxval=1.0) # debug
+                    #tf.print("upstream: ", tf.squeeze(upstream), summarize=-1)
+                    tape.watch(pred_lthetas)
+
+                    pred_thetas = pred_lthetas * scale + translate
+                    per_lvl_lthetas[lvl_i][node_i] = pred_lthetas
+
+                    # counts how many split axes are out of bounds
+                    num_out_of_bounds_thetas += tf.reduce_sum(
+                            tf.cast(pred_lthetas > 1, dtype=tf.int32) +
+                            tf.cast(pred_lthetas < 0, dtype=tf.int32))
+
+                    pen_loss += self.penalty_loss_fn(pred_lthetas,
+                        tf.constant([self.max_inter_lvl], dtype=tf.int32),
+                        tf.constant([lvl_i], dtype=tf.int32))
+
+                    offsets, bboxes = self.splitter(node.bounds, pred_thetas, point_clouds)
+
+                    # iterates over the children of the splitted node -> two children per x-axis (y-axis and z-axis)
+                    for child_i in range(self.branch_size) : # branchsize = 6 - refers to the amount of nodes one node gets splitted to
+                        child_node = child_nodes[6 * node_i + child_i]
+                        child_node.bounds = bboxes[child_i]
+                        child_node.parent_bounds = node.bounds
+
+                        if child_i % 6 == 0 or child_i % 6 == 1 :
+                            child_node.parent_normal = self.nX
+                            child_node.parent_offset = offsets[0]
+                        elif child_i % 6 == 2 or child_i % 6 == 3:
+                            child_node.parent_normal = self.nY
+                            child_node.parent_offset = offsets[1]
+                        elif child_i % 6 == 4 or child_i % 6 == 5 :
+                            child_node.parent_normal = self.nZ
+                            child_node.parent_offset = offsets[2]
+
+
+            agglomerative_pooling = {lvl_i : [] for lvl_i in range(len(self.neural_nodes) - 1)}
+            leaves = self.neural_nodes[self.lvl(self.pooling_lvl + 1)]
+
+            for node_i, node in enumerate(self.neural_nodes[self.lvl(self.pooling_lvl)]) :
+                treelet_leaves = leaves[node_i * self.branch_size : node_i * self.branch_size + self.branch_size]
+                flag = self.__build_flag(self.max_inter_lvl, node_i)
+
+                agglomerative_pooling[self.pooling_lvl] += [
+                    self.pooling_treelet.pool_leaves_soft(flag, point_clouds,
+                        root_node.bounds, node.parent_bounds, node.parent_normal, node.parent_offset, node.bounds,
+                        treelet_leaves[0].parent_offset, treelet_leaves[2].parent_offset, treelet_leaves[4].parent_offset,
+                        treelet_leaves[0].bounds, treelet_leaves[1].bounds,
+                        treelet_leaves[2].bounds, treelet_leaves[3].bounds,
+                        treelet_leaves[4].bounds, treelet_leaves[5].bounds),]
+
+            for lvl_i in range(self.pooling_lvl - 1, -1, -1) :
+                branches = agglomerative_pooling[lvl_i + 1]
+                leaves = self.neural_nodes[self.lvl(lvl_i + 1)]
+
+                for branch_i in range(0, len(branches), self.branch_size) :
+                    subtree_branches = branches[branch_i:branch_i + self.branch_size]
+                    node_i = branch_i // 6
+                    node = self.neural_nodes[self.lvl(lvl_i)][node_i]
+                    flag = self.__build_flag(lvl_i, node_i)
+
+                    C_recur = self.pooling_treelet.pool_interior_soft(flag, point_clouds,
+                        root_node.bounds, node.parent_bounds, node.parent_normal, node.parent_offset, node.bounds,
+                        subtree_branches[0][0], subtree_branches[1][0],
+                        subtree_branches[2][0], subtree_branches[3][0],
+                        subtree_branches[4][0], subtree_branches[5][0],
+                        subtree_branches[0][1], subtree_branches[1][1],
+                        subtree_branches[2][1], subtree_branches[3][1],
+                        subtree_branches[4][1], subtree_branches[5][1])
+
+                    agglomerative_pooling[lvl_i] += [C_recur,]
+
+                agglomerative_pooling[lvl_i + 1] = []
+
+            pred_costs = agglomerative_pooling[0][0] * self.config['norm_factor']
+            tree_loss = self.loss_fn(tf.zeros_like(pred_costs), pred_costs)
+            loss = tree_loss + pen_loss
+            mae = tf.reduce_mean(pred_costs)
+
+        batch_log = {}
+        loss_over_offset = tape.gradient(loss, per_lvl_lthetas)
+        grad = []
+       
+        for lvl_i in range(self.max_inter_lvl) :
+            nodes = self.neural_nodes[self.lvl(lvl_i)]
+            offset_encoder = self.offset_encoders[lvl_i]
+            encoder_grads = [tf.zeros_like(w) for w in offset_encoder.trainable_weights]
+
+            for node_i, node in enumerate(nodes) :
+                upstream_grad_node_i = loss_over_offset[lvl_i][node_i]
+
+                with tf.GradientTape() as tape :
+                    pred_lthetas, _, _ = offset_encoder([point_clouds, node.bounds])
+               
+                loss_over_encoder = tape.gradient(pred_lthetas,
+                    offset_encoder.trainable_weights,
+                    output_gradients=upstream_grad_node_i)
+
+                for grad_i, grads in enumerate(loss_over_encoder) :
+                    encoder_grads[grad_i] += grads
+
+            grad += [encoder_grads,]
+     
+        return {
+            'loss' : loss,
+            'tree_loss' : tree_loss,
+            'pen_loss' : pen_loss,
+            'mae' : mae,
+            'out_of_bounds_splits'  : num_out_of_bounds_thetas }, \
+            grad, batch_log
