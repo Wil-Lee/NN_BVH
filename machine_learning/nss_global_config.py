@@ -13,7 +13,7 @@ TREE_DIR =  os.path.join(os.getcwd(), 'machine_learning', 'trees')
 pc_size = 2048
 lvls = 4
 epochs = 1
-batch_sets_per_scene = 2350 # after 2000 net seems to learn nothing new
+batch_amount = 2350 # after 2000 net seems to learn nothing new
 test_primitive_clouds_per_scene = 64
 EPO_SAH_alpha = 0.71
 capacity = 128
@@ -57,7 +57,7 @@ init_config = {
     'train_scenes_dir' : TRAIN_SCENES_DIR,
     'test_scenes_dir' : TEST_SCENES_DIR,
     'output_tree_dir' : TREE_DIR,
-    'batch_sets' : batch_sets_per_scene,
+    'batch_amount' : batch_amount,
     'test_sets' : test_primitive_clouds_per_scene,
     'EPO' : False
     }

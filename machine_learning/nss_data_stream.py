@@ -233,11 +233,11 @@ class Scene_meshNamePair:
 class primitive_cloud_generator:
     def __init__(self, config):
         self.batch_size = config['batch_size']
+        self.batch_limit = config['batch_amount']
         self.train_scene_folder = config['train_scenes_dir']
         self.test_scene_folder = config['test_scenes_dir']
-        self.batch_sets_per_scene = config['batch_sets']
         self.prim_cloud_size = config['point_cloud_size']
-        self.scene_index = 0
+        self.scene_iter = 0
         self.scenes: list[Scene] = []
         self.scene_names: list[str] = []
         self.test_dataset = []
@@ -257,17 +257,16 @@ class primitive_cloud_generator:
             #self.test_dataset.extend(sc.get_test_dataset(config['test_sets']))
         #self.test_dataset = tf.convert_to_tensor(self.test_dataset, dtype=tf.float32)
         print("... done.")
-        self.batch_limit = len(self.scenes) * self.batch_sets_per_scene
 
     def reset_scenes(self):
         for scene in self.scenes:
             scene.reset()
 
     def get_next_batch(self):
-        if self.scene_index >= self.batch_limit:
+        if self.scene_iter >= self.batch_limit:
             return tf.constant([], dtype=tf.float32)
-        cur_scene: Scene = self.scenes[self.scene_index // self.batch_sets_per_scene]
-        self.scene_index += 1
+        cur_scene: Scene = self.scenes[self.scene_iter % len(self.scenes)]
+        self.scene_iter += 1
         with warnings.catch_warnings():
             warnings.simplefilter("ignore", RuntimeWarning)
             transformed_scenes_batch = np.array(cur_scene.get_next_tranformed_batch()).reshape(self.batch_size, self.prim_cloud_size, 9)
