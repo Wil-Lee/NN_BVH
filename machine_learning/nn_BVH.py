@@ -275,7 +275,7 @@ def compute_cost_without_epo(task: Tuple[Axis, float, BVHNode, list[Primitive3],
         return  best_split.cost, best_split.cost, 0, best_split.axis, best_split.offset, [], []
 
 
-def build_greedy_SAH_EPO_tree_multi_thread(root_node: BVHNode, alpha: float, levels: int, max_workes:int = os.cpu_count(), ues_epo: bool=False):
+def build_greedy_SAH_EPO_tree_multi_thread(root_node: BVHNode, alpha: float, levels: int, max_workes:int = os.cpu_count(), use_epo: bool=False):
 
     root_surface = nn_loss.surface_area(root_node.primitives)
     
