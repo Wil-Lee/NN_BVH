@@ -31,7 +31,7 @@ class Model:
         self.net = nss_treeNet_model.neural_kdtree(config, 'EPO_tree')
         self.net.load_trained_model(load_optimizer=False)
 
-    def get_prediction(self, config, scene: nss_data_stream.scene, greedyInference = False):
+    def get_prediction(self, config, scene: nss_data_stream.Scene, greedyInference = False):
         tree_structure, _ = self.net.predict_tree_EPO(scene)
         tree_structure = tree_structure[0]
 
@@ -85,7 +85,7 @@ def build_tree_from_nn_prediction(root_node: nn_BVH.BVHNode, tree_structure: np.
         elif index >= (2 ** levels) - 1:
             node_opt.is_leaf = True
     if not are_splits_valid:
-        print("Invalid predicted offsets!")
+        print("Invalid predicted offsets or offset did not lead to an empty split!")
 
 
 def main():
@@ -96,34 +96,47 @@ def main():
     os.environ['TF_XLA_FLAGS'] = '--tf_xla_enable_xla_devices'
     os.environ['TF_GPU_THREAD_MODE'] = 'gpu_private'
 
-    ### remove later -> get bvh root node from scene #####################
+    evaluate_model: bool = 1
+    if evaluate_model:
+        config = nss_global_config.epo_config.copy()
+        nn = Model(config)
+        generator = nss_data_stream.primitive_cloud_generator(config)
+        scenes_for_prediction, scene_names_pred = generator.get_base_scenes_for_nn_prediction()
+        scenes_for_evaluation = generator.get_base_scenes_for_evalutation()
+        assert len(scenes_for_prediction) == len(scenes_for_evaluation), "amount of train and test scenes are not equal"
+
+        for i in range(len(scenes_for_prediction)):
+            scene_name_pred = scene_names_pred[i]
+            scene_eval = scenes_for_evaluation[scene_name_pred]
+            scene_name_eval = scene_eval.name
+            assert scene_name_eval == scene_name_pred, f"train: {scene_name_pred} and test {scene_name_eval} scene are not the same"
+
+            tree_structure = nn.get_prediction(config=config, scene=scenes_for_prediction[i])
+
+            scene_mesh = scene_eval.scene
+            scene_aabb = nn_AABB.get_AABB_from_primitives(scene_mesh.primitives)
+            root_node_nn_prediction = nn_BVH.BVHNode(scene_aabb, scene_mesh.primitives)
+
+            build_tree_from_nn_prediction(root_node_nn_prediction, tree_structure)
+
+            sah_tree: float = nn_loss.SAH(root_node_nn_prediction)
+            epo_tree: float = nn_loss.EPO(root_node_nn_prediction)
+
+            print(f"{scene_name_eval} pre_SAH: {sah_tree}")
+            print(f"{scene_name_eval} pre_EPO: {epo_tree}\n")
+
+    else:
+        # manual selection
     path = "machine_learning/bedroom_LowPoly.obj"
     p_mesh = nn_parser.parse_obj_file_with_meshes(path)
     p_mesh.primitives = nn_parser.scale_scene(p_mesh.primitives)
     aabb = nn_AABB.get_AABB_from_primitives(p_mesh.primitives)
     root_node_optimal = nn_BVH.BVHNode(aabb, p_mesh.primitives)
-    root_node_nn_prediction = nn_BVH.BVHNode(aabb, p_mesh.primitives)
-    ######################################################################
     
-    config = nss_global_config.epo_config.copy()
-    scenes = nss_data_stream.primitive_cloud_generator(config).get_base_scenes()
-
+        levels = nss_global_config.lvls
     alpha = nss_global_config.EPO_SAH_alpha
-    levels = nss_global_config.lvls
-
-    if 1:
-        nn = Model(config)
-        
-        tree_structure = nn.get_prediction(config=config, scene=scenes[0])
-        build_tree_from_nn_prediction(root_node_nn_prediction, tree_structure)
-        sah_tree: float = nn_loss.SAH(root_node_nn_prediction)
-        epo_tree: float = nn_loss.EPO(root_node_nn_prediction)
-
-        print(f"pre_SAH: {sah_tree}")
-        print(f"pre_EPO: {epo_tree}\n")
-
     with bench("Building tree"):
-        nn_BVH.build_greedy_SAH_EPO_tree_single_thread(root_node_optimal, alpha, levels - 1, use_epo=True)
+            nn_BVH.build_greedy_SAH_EPO_tree_multi_thread(root_node_optimal, alpha, levels - 1, use_epo=True)
 
     sah_tree: float = nn_loss.SAH(root_node_optimal)
     epo_tree: float = nn_loss.EPO(root_node_optimal)

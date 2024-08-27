@@ -1,4 +1,6 @@
 # credits: https://github.com/cgaueb/nss
+from dataclasses import dataclass
+from typing import Dict
 import copy
 import heapq
 import os
@@ -74,7 +76,7 @@ class pointcloud_stream :
     
 ####################################################### EDIT ##################################################################################
 
-class scene:
+class Scene:
     def __init__(self, _meshes: nn_mesh_list.Mesh3List, batch_size, primitive_cloud_size: float, rng_seed):
         self.prim_cloud_size = primitive_cloud_size
         self.batch_size = batch_size
@@ -221,31 +223,39 @@ class scene:
                 self.batch_primitives_AABB_lists[batch_idx][m][min + axis] += translation
         
         return self.batch_primitive_clouds
+    
 
-
+@dataclass
+class Scene_meshNamePair:
+    scene: nn_mesh_list.Mesh3List
+    name: str    
 
 class primitive_cloud_generator:
     def __init__(self, config):
         self.batch_size = config['batch_size']
-        self.scene_folder = config['scenes_dir']
+        self.train_scene_folder = config['train_scenes_dir']
+        self.test_scene_folder = config['test_scenes_dir']
         self.batch_sets_per_scene = config['batch_sets']
         self.prim_cloud_size = config['point_cloud_size']
         self.scene_index = 0
-        self.scenes : list[scene] = []
+        self.scenes: list[Scene] = []
+        self.scene_names: list[str] = []
         self.test_dataset = []
         self.coordinates_order = [0,3,6,1,4,7,2,5,8]
 
-        print("Loading scenes and test dataset...")
-        for scene_file in os.listdir(self.scene_folder):
+        print("Loading train scenes...")
+        for scene_file in os.listdir(self.train_scene_folder):
             if not scene_file.endswith('.obj'):
                 continue
-            scene_meshes = nn_parser.parse_obj_file_with_meshes(os.path.join(self.scene_folder, scene_file))
+            self.scene_names.append(scene_file[:-10])
+            print("Loading ", scene_file, "...")
+            scene_meshes = nn_parser.parse_obj_file_with_meshes(os.path.join(self.train_scene_folder, scene_file))
             nn_parser.scale_scene(scene_meshes.primitives, 1)
 
-            sc = scene(scene_meshes, self.batch_size, self.prim_cloud_size, 83242)
+            sc = Scene(scene_meshes, self.batch_size, self.prim_cloud_size, 83242)
             self.scenes.append(sc)
-            self.test_dataset.extend(sc.get_test_dataset(config['test_sets']))
-        self.test_dataset = tf.convert_to_tensor(self.test_dataset, dtype=tf.float32)
+            #self.test_dataset.extend(sc.get_test_dataset(config['test_sets']))
+        #self.test_dataset = tf.convert_to_tensor(self.test_dataset, dtype=tf.float32)
         print("... done.")
         self.batch_limit = len(self.scenes) * self.batch_sets_per_scene
 
@@ -256,7 +266,7 @@ class primitive_cloud_generator:
     def get_next_batch(self):
         if self.scene_index >= self.batch_limit:
             return tf.constant([], dtype=tf.float32)
-        cur_scene: scene = self.scenes[self.scene_index // self.batch_sets_per_scene]
+        cur_scene: Scene = self.scenes[self.scene_index // self.batch_sets_per_scene]
         self.scene_index += 1
         with warnings.catch_warnings():
             warnings.simplefilter("ignore", RuntimeWarning)
@@ -266,7 +276,7 @@ class primitive_cloud_generator:
         result = tf.gather(result, self.coordinates_order, axis=2)
         return result
     
-    def get_base_scenes(self):
+    def get_base_scenes_for_nn_prediction(self):
         result = []
         for scene in self.scenes:
             prim_cloud = np.array(scene.backup_batch_primitive_clouds[0]).reshape(1, self.prim_cloud_size, 9)
@@ -274,5 +284,20 @@ class primitive_cloud_generator:
             prim_cloud = tf.gather(prim_cloud, self.coordinates_order, axis=2)
             result.append(prim_cloud)
 
+        return result, self.scene_names
+    
+    def get_base_scenes_for_evalutation(self) -> Dict[str, Scene_meshNamePair]:
+        result = {}
+
+        print("Loading test scenes...")
+        for scene_file in os.listdir(self.test_scene_folder):
+            if not scene_file.endswith('.obj'):
+                continue
+            print("Loading ", scene_file, "...")
+            scene_meshes = nn_parser.parse_obj_file_with_meshes(os.path.join(self.test_scene_folder, scene_file))
+            nn_parser.scale_scene(scene_meshes.primitives)
+            scene_name = scene_file[:-9]
+            result[scene_name] = Scene_meshNamePair(scene_meshes, scene_name)
+        print("... done.")
+
         return result
-        

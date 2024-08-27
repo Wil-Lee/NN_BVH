@@ -5,18 +5,19 @@ import nss_loss
 import nss_kd_tree
 
 TREE_DATASET_DIR = os.path.join(os.getcwd(), 'machine_learning', 'datasets')
-SCENES_DIR = os.path.join(os.getcwd(), 'machine_learning', 'obj_scenes')
+TRAIN_SCENES_DIR = os.path.join(os.getcwd(), 'machine_learning', 'train_scenes')
+TEST_SCENES_DIR = os.path.join(os.getcwd(), 'machine_learning', 'test_scenes')
 TREE_DIR =  os.path.join(os.getcwd(), 'machine_learning', 'trees')
 
 # adjustable hyperparameters
 pc_size = 2048
 lvls = 4
 epochs = 1
-batch_sets_per_scene = 1
+batch_sets_per_scene = 2350 # after 2000 net seems to learn nothing new
 test_primitive_clouds_per_scene = 64
 EPO_SAH_alpha = 0.71
 capacity = 128
-batch_size = 32
+batch_size = 64
 
 i_isect = 1.0
 """ Corresponds to C_tri of EPO paper. """
@@ -53,7 +54,8 @@ init_config = {
     'checkpoint_window' : 15, ##################################### <-------- checkpoint
     'epochs' : epochs,
     'batch_size' : batch_size, 
-    'scenes_dir' : SCENES_DIR,
+    'train_scenes_dir' : TRAIN_SCENES_DIR,
+    'test_scenes_dir' : TEST_SCENES_DIR,
     'output_tree_dir' : TREE_DIR,
     'batch_sets' : batch_sets_per_scene,
     'test_sets' : test_primitive_clouds_per_scene,
@@ -68,17 +70,12 @@ def buildNetworkName(strat, lvls, pc_size, capacity) :
         str(capacity),)
 
 epo_config = init_config.copy()
-
 epo_config['tree_strat'] = nss_kd_tree.strategy.SURFACE_HEURISTIC_GREEDY
-
 epo_config['name'] = buildNetworkName(
     epo_config['tree_strat'], epo_config['tree_levels'],
     epo_config['point_cloud_size'],
     epo_config['dense_units_point_enc'])
-
 epo_config['EPO'] = True
-
-
 epo_config['weight_fn'] = nss_tree_modules.sah_eval() # TODO: maybe change
 epo_config['pooling_fn'] = nss_tree_modules.pool_treelet_EPO(t, t_isect, 4 if init_config['train_unbalanced'] else 3,
     init_config['norm_factor'],
