@@ -157,7 +157,7 @@ def EPO_single_node(parent_node: nn_BVH.BVHNode, split_axis: Axis, axis_pos: flo
     parent_node.left_child = None
     parent_node.right_child = None
 
-    return (((l_surface / p_surface) * l_prim_count) + ((r_surface / p_surface) * r_prim_count)) * C_tri, \
+    return (((l_surface / p_surface) * l_prim_count) + ((r_surface / p_surface) * r_prim_count)) * C_tri * 0.5, \
         l_overlapping_prims, r_overlapping_prims
     
 
