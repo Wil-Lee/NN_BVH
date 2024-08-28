@@ -136,7 +136,7 @@ def main():
         levels = nss_global_config.lvls
     alpha = nss_global_config.EPO_SAH_alpha
     with bench("Building tree"):
-            nn_BVH.build_greedy_SAH_EPO_tree_multi_thread(root_node_optimal, alpha, levels - 1, use_epo=True)
+            nn_BVH.build_greedy_SAH_tree_tf(root_node_optimal, alpha, levels - 1, print_progress=True)#, max_workes=7, use_epo=False)
 
     sah_tree: float = nn_loss.SAH(root_node_optimal)
     epo_tree: float = nn_loss.EPO(root_node_optimal)

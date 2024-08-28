@@ -1,5 +1,6 @@
 from nn_types import *
 import nn_BVH
+import tensorflow as tf
 
 def surface_area(primitives: list[Primitive3]):
     """ Returns the total area of all primitives given in the argument list. """
@@ -219,3 +220,55 @@ def SAH_single_node(parent_node: nn_BVH.BVHNode, split_axis: Axis, axis_pos: flo
     parent_node.right_child = None
 
     return (((l_surface / p_surface) * l_prim_count) + ((r_surface / p_surface) * r_prim_count)) * C_tri
+
+
+tf_C_tri = tf.cast(C_tri, tf.float32)
+
+def SAH_single_node_tf(parent_prims, parent_prims_mids, split_axis, split_pos, parent_surface):
+    left_child_mask = tf.cast(parent_prims_mids <= split_pos[..., tf.newaxis], tf.float32)
+    right_child_mask = tf.cast(parent_prims_mids > split_pos[..., tf.newaxis], tf.float32)
+    
+    left_prims = tf.where(left_child_mask[..., tf.newaxis] == 1, parent_prims, tf.zeros_like(parent_prims))
+    right_prims = tf.where(right_child_mask[..., tf.newaxis] == 1, parent_prims, tf.zeros_like(parent_prims))
+
+    left_prims_count = tf.squeeze(tf.reduce_sum(left_child_mask, axis=1))
+    right_prims_count = tf.squeeze(tf.reduce_sum(right_child_mask, axis=1))
+
+    left_x_values = left_prims[..., 0]
+    left_y_values = left_prims[..., 1]
+    left_z_values = left_prims[..., 2]
+
+    left_x_min = tf.reduce_min(left_x_values + right_child_mask, axis=[1,2])
+    left_x_max = tf.reduce_max(left_x_values, axis=[1,2])
+    left_y_min = tf.reduce_min(left_y_values + right_child_mask, axis=[1,2])
+    left_y_max = tf.reduce_max(left_y_values, axis=[1,2])
+    left_z_min = tf.reduce_min(left_z_values + right_child_mask, axis=[1,2])
+    left_z_max = tf.reduce_max(left_z_values, axis=[1,2])
+
+    left_x_extent = left_x_max - left_x_min
+    left_y_extent = left_y_max - left_y_min
+    left_z_extent = left_z_max - left_z_min
+    left_surface = 2.0 * (left_x_extent * left_y_extent + left_x_extent * left_z_extent + left_y_extent * left_z_extent)
+
+    right_x_values = right_prims[..., 0]
+    right_y_values = right_prims[..., 1]
+    right_z_values = right_prims[..., 2]
+    
+    right_x_min = tf.reduce_min(right_x_values + left_child_mask, axis=[1,2])
+    right_x_max = tf.reduce_max(right_x_values, axis=[1,2])
+    right_y_min = tf.reduce_min(right_y_values + left_child_mask, axis=[1,2])
+    right_y_max = tf.reduce_max(right_y_values, axis=[1,2])
+    right_z_min = tf.reduce_min(right_z_values + left_child_mask, axis=[1,2])
+    right_z_max = tf.reduce_max(right_z_values, axis=[1,2])
+
+    right_x_extent = right_x_max - right_x_min
+    right_y_extent = right_y_max - right_y_min
+    right_z_extent = right_z_max - right_z_min
+    right_surface = 2.0 * (right_x_extent * right_y_extent + right_x_extent * right_z_extent + right_y_extent * right_z_extent)
+
+    cost = (((left_surface / parent_surface) * left_prims_count) + ((right_surface / parent_surface) * right_prims_count)) * tf_C_tri
+
+    min_cost = tf.reduce_min(cost)
+    min_cost_index = tf.argmin(cost, axis=0)
+
+    return min_cost, min_cost_index

@@ -51,7 +51,7 @@ class BVHNode:
                                 self.primitives[i][1][split_axis_value], 
                                 self.primitives[i][2][split_axis_value])
             
-            if max_primitive < axis_pos:
+            if max_primitive <= axis_pos:
                 left_primitives.append(self.primitives[i])
                 continue
             
@@ -60,7 +60,7 @@ class BVHNode:
                                 self.primitives[i][1][split_axis_value], 
                                 self.primitives[i][2][split_axis_value])
             
-            if min_primitive >= axis_pos:
+            if min_primitive > axis_pos:
                 right_primitives.append(self.primitives[i])
                 continue
 
@@ -178,13 +178,93 @@ class NodeData:
     node: BVHNode
     overlapping_prims: list[Primitive3]
 
-import nn_loss     
-def build_greedy_SAH_EPO_tree_single_thread(root_node: BVHNode, alpha: float, levels: int, use_epo: bool=False):
+from contextlib import contextmanager
+import time
+@contextmanager
+def bench(name):
+    print(f"\nStart {name}...")
+    start_time = time.time()
+    yield
+    end_time = time.time()
+    print(f"... {name} done in: " + str(end_time - start_time) + " seconds.")
+
+import nn_loss
+import tensorflow as tf
+
+def build_greedy_SAH_tree_tf(root_node: BVHNode, alpha: float, levels: int, print_progress=False):
     nodes_hierarchy: list[list[NodeData]] = [[] for _ in range(levels + 1)]
     nodes_hierarchy[0].append(NodeData(node=root_node, overlapping_prims=[]))
 
-    root_surface = nn_loss.surface_area(root_node.primitives)
+    BATCH_SIZE_GPU = 256
+
+    for level in range(levels):
+        for node_index, node_data in enumerate(nodes_hierarchy[level]):
+            if node_data.node.is_leaf:
+                continue
+
+            best_split = BestSplit(cost=sys.float_info.max, offset= -0.5)
+            
+            parent_prims = tf.constant(node_data.node.primitives, dtype=tf.float32)
+            parent_prims = tf.expand_dims(parent_prims, axis=0)
+            parent_prims = tf.tile(parent_prims, multiples=[BATCH_SIZE_GPU, 1,1,1])
+            for axis in Axis:
+                
+                p_aabb = node_data.node.aabb
+                p_x_extent = p_aabb.x_max - p_aabb.x_min
+                p_y_extent = p_aabb.y_max - p_aabb.y_min
+                p_z_extent = p_aabb.z_max - p_aabb.z_min
+                p_surface = tf.cast(2.0 * (p_x_extent * p_y_extent + p_x_extent * p_z_extent + p_y_extent * p_z_extent), tf.float32)
+                
+                parent_prims_axis_points = tf.stack([
+                    parent_prims[..., 0, axis.value],
+                    parent_prims[..., 1, axis.value],
+                    parent_prims[..., 2, axis.value]
+                ], axis=-1)
+
+                parent_prims_mins = tf.reduce_min(parent_prims_axis_points ,axis=2, keepdims=True)
+                parent_prims_maxs = tf.reduce_max(parent_prims_axis_points ,axis=2, keepdims=True)
+                parent_prims_mids = parent_prims_mins + ((parent_prims_maxs - parent_prims_mins) * 0.5)
+
+                split_offsets = tf.unique(tf.squeeze(parent_prims_mids[1])).y
+                split_offsets = tf.sort(split_offsets)
+                split_offsets = split_offsets.numpy()
+
+                batch_offsets: np.ndarray = []
+                for start in range(0, len(split_offsets), BATCH_SIZE_GPU):
+                    end = min(start + BATCH_SIZE_GPU, len(split_offsets))
+                    batch_offsets.append(np.array(split_offsets[start:end]))
+                
+                last_len = len(batch_offsets[len(batch_offsets) - 1])
+                if last_len < BATCH_SIZE_GPU:
+                    fill = np.array([p_aabb.get_max(axis) for i in range(BATCH_SIZE_GPU - last_len)])
+                    batch_offsets[len(batch_offsets) - 1] = np.concatenate((batch_offsets[len(batch_offsets) - 1], fill), axis=None)
+
+                for i, offset in enumerate(batch_offsets):
+                    cost, cost_index = nn_loss.SAH_single_node_tf(parent_prims, parent_prims_mids, axis.value,\
+                                                          tf.expand_dims(tf.cast(offset, tf.float32), axis=-1), p_surface)
+                    if print_progress:
+                        print(f"Level: {level}   Node: {node_index}   Axis: {axis}   Batch: {i + 1}/{len(batch_offsets)}")
+                    if (cost < best_split.cost):
+                        best_split.cost = cost.numpy()
+                        best_split.offset = offset[cost_index]
+                        best_split.axis = axis
+            if node_data.node.split(best_split.axis, best_split.offset): 
+                nodes_hierarchy[level + 1].append(NodeData(node_data.node.left_child, []))
+                nodes_hierarchy[level + 1].append(NodeData(node_data.node.right_child, []))
+            else:
+                node_data.node.is_leaf = True
+        print("Level {} splitted.".format(level))
+    
+    for node_data in nodes_hierarchy[levels]:
+        node_data.node.is_leaf = True
+
+
+def build_greedy_SAH_EPO_tree_single_thread(root_node: BVHNode, alpha: float, levels: int, use_epo: bool=False):
+    nodes_hierarchy: list[list[NodeData]] = [[] for _ in range(levels + 1)]
+    nodes_hierarchy[0].append(NodeData(node=root_node, overlapping_prims=[]))
+    
     if use_epo:
+        root_surface = nn_loss.surface_area(root_node.primitives)
         for level in range(levels):
             for node_data in nodes_hierarchy[level]:
                 best_split = BestSplit(cost=sys.float_info.max, offset= -0.5)
@@ -216,7 +296,7 @@ def build_greedy_SAH_EPO_tree_single_thread(root_node: BVHNode, alpha: float, le
                 for axis in Axis:
                     split_offsets = get_all_split_offsets(node_data.node.primitives, axis)
 
-                    for o_idx, offset in enumerate(split_offsets):    
+                    for o_idx, offset in enumerate(split_offsets):
                         cost = nn_loss.SAH_single_node(node_data.node, axis, offset)
                         if (cost < best_split.cost):
                             best_split.cost = cost
@@ -229,7 +309,7 @@ def build_greedy_SAH_EPO_tree_single_thread(root_node: BVHNode, alpha: float, le
                     node_data.node.is_leaf = True
             print("Level {} splitted.".format(level))
     
-    for node_data in nodes_hierarchy[levels - 1]:
+    for node_data in nodes_hierarchy[levels]:
         node_data.node.is_leaf = True
 
     
@@ -277,7 +357,9 @@ def compute_cost_without_epo(task: Tuple[Axis, float, BVHNode, list[Primitive3],
 
 def build_greedy_SAH_EPO_tree_multi_thread(root_node: BVHNode, alpha: float, levels: int, max_workes:int = os.cpu_count(), use_epo: bool=False):
 
+    print("Calulating root node's prims surface...")
     root_surface = nn_loss.surface_area(root_node.primitives)
+    print("...done!")
     
     def parallel(node_data: NodeData, chunk_size: int):
         best_split = BestSplit(cost=sys.float_info.max, offset=-0.5)
@@ -323,5 +405,5 @@ def build_greedy_SAH_EPO_tree_multi_thread(root_node: BVHNode, alpha: float, lev
                 node_data.node.is_leaf = True
         print("Level {} splitted.".format(level))
     
-    for node_data in nodes_hierarchy[levels - 1]:
+    for node_data in nodes_hierarchy[levels]:
         node_data.node.is_leaf = True
