@@ -71,8 +71,7 @@ def buildNetworkName(strat, lvls, pc_size, capacity) :
 
 def build_network_name_EPO(lvls, pc_size, capacity, learning_rate, alpha, data_points):
     return'{0}lvl_{1}pc_{2}capacity_{3}learningRate_{4}_alpha_{5}dataPoints'.format(
-        str(lvls), str(pc_size), str(capacity), str(learning_rate, str(alpha), str(data_points))
-    )
+        str(lvls), str(pc_size), str(capacity), str(learning_rate), str(alpha), str(data_points))
 
 epo_config = init_config.copy()
 epo_config['tree_strat'] = nss_kd_tree.strategy.SURFACE_HEURISTIC_GREEDY
