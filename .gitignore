@@ -17,3 +17,4 @@ bedroomNoFloor.obj
 machine_learning/datasets
 machine_learning/metadata
 machine_learning/plots
+machine_learning/bench_scenes/*
