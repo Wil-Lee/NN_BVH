@@ -225,7 +225,8 @@ def build_greedy_SAH_tree_tf(root_node: BVHNode, alpha: float, levels: int, prin
                 parent_prims_maxs = tf.reduce_max(parent_prims_axis_points ,axis=2, keepdims=True)
                 parent_prims_mids = parent_prims_mins + ((parent_prims_maxs - parent_prims_mins) * 0.5)
 
-                split_offsets = tf.unique(tf.squeeze(parent_prims_mids[1])).y
+                split_offsets = tf.unique(tf.squeeze(parent_prims_mids[1]))
+                split_offsets = split_offsets.y
                 split_offsets = tf.sort(split_offsets)
                 split_offsets = split_offsets.numpy()
 
