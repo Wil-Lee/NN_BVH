@@ -129,7 +129,6 @@ class Scene:
         # moveable objects
         remaining_sample_size: float = self.prim_cloud_size - len(self.primitive_cloud.primitives)
         remaining_primitives_size: float = float(len(self.meshes.primitives)) - non_moveable_mesh_range.up
-        samples_per_prim: float = min(remaining_sample_size / remaining_primitives_size, 1)
         
         step = remaining_primitives_size / remaining_sample_size
         sample_indices = [(non_moveable_mesh_range.up + round(i * step)) for i in range(remaining_sample_size)]
@@ -229,7 +228,8 @@ class Scene:
 @dataclass
 class Scene_meshNamePair:
     scene: nn_mesh_list.Mesh3List
-    name: str    
+    name: str
+    prim_cloud: Scene = None  
 
 class primitive_cloud_generator:
     def __init__(self, config):
@@ -237,6 +237,7 @@ class primitive_cloud_generator:
         self.batch_limit = config['batch_amount']
         self.train_scene_folder = config['train_scenes_dir']
         self.test_scene_folder = config['test_scenes_dir']
+        self.bench_scene_folder = config['bench_scenes_dir']
         self.prim_cloud_size = config['point_cloud_size']
         self.scene_iter = 0
         self.scenes: list[Scene] = []
@@ -260,9 +261,11 @@ class primitive_cloud_generator:
         #self.test_dataset = tf.convert_to_tensor(self.test_dataset, dtype=tf.float32)
         print("... done.")
 
+
     def reset_scenes(self):
         for scene in self.scenes:
             scene.reset()
+
 
     def get_next_batch(self):
         if self.scene_iter >= self.batch_limit:
@@ -277,6 +280,7 @@ class primitive_cloud_generator:
         result = tf.gather(result, self.coordinates_order, axis=2)
         return result
     
+
     def get_base_scenes_for_nn_prediction(self):
         result = []
         for scene in self.scenes:
@@ -287,6 +291,7 @@ class primitive_cloud_generator:
 
         return result, self.scene_names
     
+
     def get_base_scenes_for_evalutation(self) -> Dict[str, Scene_meshNamePair]:
         result = {}
 
@@ -299,6 +304,48 @@ class primitive_cloud_generator:
             nn_parser.scale_scene(scene_meshes.primitives)
             scene_name = scene_file[:-9]
             result[scene_name] = Scene_meshNamePair(scene_meshes, scene_name)
+        print("... done.")
+
+        return result
+
+
+    def load_bench_scenes(self) -> Dict[str, Scene_meshNamePair]:
+        result = {}
+
+        print("Loading bench scenes...")
+        for scene_file in os.listdir(self.bench_scene_folder):
+            if not scene_file.endswith('.obj'):
+                continue
+            print("Loading ", scene_file, "...")
+            scene_mesh = nn_parser.parse_obj_file_with_meshes(os.path.join(self.bench_scene_folder, scene_file))
+            nn_parser.scale_scene(scene_mesh.primitives)
+            scene_name = scene_file[:-4]
+
+            sample_size: float = self.prim_cloud_size
+            primitives_size = len(scene_mesh.primitives)
+            
+            step = primitives_size / sample_size
+            sample_indices = [(round(i * step)) for i in range(sample_size)]
+            
+            prim_cloud: nn_mesh_list.Mesh3List = nn_mesh_list.Mesh3List()
+            sample_idx = 0
+            for mesh_index, mesh_interval in enumerate(scene_mesh.mesh_indices):
+                prim_cloud_mesh: nn_types.Mesh3 = []
+                while sample_idx < len(sample_indices) \
+                    and mesh_interval.low <= sample_indices[sample_idx] \
+                    and sample_indices[sample_idx] < mesh_interval.up:
+
+                    prim_cloud_mesh.append(scene_mesh.primitives[sample_indices[sample_idx]])
+                    sample_idx += 1
+                prim_cloud.append(prim_cloud_mesh)
+
+            nn_parser.translate_scene(prim_cloud.primitives)
+            
+            prim_cloud = np.array(prim_cloud.primitives).reshape(1, self.prim_cloud_size, 9)
+            prim_cloud = tf.convert_to_tensor(prim_cloud, dtype=tf.float32)
+            prim_cloud = tf.gather(prim_cloud, self.coordinates_order, axis=2)
+
+            result[scene_name] = Scene_meshNamePair(scene_mesh, scene_name, prim_cloud)
         print("... done.")
 
         return result

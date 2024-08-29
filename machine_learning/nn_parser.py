@@ -248,5 +248,17 @@ def scale_scene(primitives: list[Primitive3], shift: int = 0):
         p[2][1] += shift
         p[2][2] /= max_extent
         p[2][2] += shift    
+        
 
-    return primitives
+def translate_scene(primitives: list[Primitive3], x_shift: float = 1, y_shift: float = 1, z_shift: float = 1):
+    for p in primitives:
+    
+        p[0][0] += x_shift
+        p[0][1] += y_shift
+        p[0][2] += z_shift
+        p[1][0] += x_shift
+        p[1][1] += y_shift
+        p[1][2] += z_shift
+        p[2][0] += x_shift
+        p[2][1] += y_shift
+        p[2][2] += z_shift 

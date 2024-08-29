@@ -20,7 +20,7 @@ class BVHNode:
         self.aabb: AABB = aabb
         self.primitives: list[Primitive3] = primitives
 
-        self.is_leaf = len(primitives) <= MAX_PRIMITIVES_PER_LEAF
+        self.is_leaf = False #len(primitives) <= MAX_PRIMITIVES_PER_LEAF
         self.parent: BVHNode = None
         self.left_child: BVHNode
         self.right_child: BVHNode
@@ -36,9 +36,6 @@ class BVHNode:
         Returns true if node is not a leaf, otherwise false.
         """
         tight_bounds = True
-
-        if self.is_leaf:
-            return False
         
         split_axis_value = split_axis.value
 
@@ -107,7 +104,6 @@ class BVHNode:
             self.left_child.layer = self.layer + 1
             self.right_child.layer = self.layer + 1
 
-        return True
 
     def to_list(self):
         """ Converts the BVH to a list of its nodes separated in inner and leafs. """
@@ -129,9 +125,11 @@ class BVHNode:
 
         return inner_nodes, leaf_nodes
     
+
     def print_tree(self):
         self.__print__(self)
     
+
     def __print__(self, node, node_index=0, parent_index=None, indent=""):
         if parent_index is None:
             parent_str = "Root"
@@ -141,7 +139,7 @@ class BVHNode:
         line_prefix = f"{indent}Node: {node_index}, {parent_str}"
 
         if node.is_leaf:
-            print(f"{line_prefix} -> Leaf Node")
+            print(f"{line_prefix} -> Leaf Node, Amount of leafs: {len(node.primitives)}")
         else:
             print(f"{line_prefix} -> {node.split_dimension}, Offset: {node.split_offset}")
             
@@ -150,6 +148,7 @@ class BVHNode:
             if node.right_child:
                 self.__print__(node.right_child, node_index * 2 + 2, node_index, indent + "     ")
     
+
 def get_all_split_offsets(prims: list[Primitive3], _axis: Axis):
     """ Returns all split offsets which lead to different BVH splits. """
     def center(prim: Primitive3, axis: int) -> float:
@@ -195,7 +194,7 @@ def build_greedy_SAH_tree_tf(root_node: BVHNode, alpha: float, levels: int, prin
     nodes_hierarchy: list[list[NodeData]] = [[] for _ in range(levels + 1)]
     nodes_hierarchy[0].append(NodeData(node=root_node, overlapping_prims=[]))
 
-    BATCH_SIZE_GPU = 24
+    BATCH_SIZE_GPU = 256
 
     for level in range(levels):
         for node_index, node_data in enumerate(nodes_hierarchy[level]):
@@ -249,17 +248,21 @@ def build_greedy_SAH_tree_tf(root_node: BVHNode, alpha: float, levels: int, prin
                         best_split.cost = cost.numpy()
                         best_split.offset = offset[cost_index]
                         best_split.axis = axis
-            if node_data.node.split(best_split.axis, best_split.offset): 
+            node_data.node.split(best_split.axis, best_split.offset)
+            if len(node_data.node.left_child.primitives) > 0 or len(node_data.node.right_child.primitives) > 0: 
                 nodes_hierarchy[level + 1].append(NodeData(node_data.node.left_child, []))
                 nodes_hierarchy[level + 1].append(NodeData(node_data.node.right_child, []))
             else:
                 node_data.node.is_leaf = True
+                node_data.node.left_child=None
+                node_data.node.right_child=None
         print("Level {} splitted.".format(level))
     
     for node_data in nodes_hierarchy[levels]:
         node_data.node.is_leaf = True
 
 
+# not working because of removal of leaf check in BVHNode.split()
 def build_greedy_SAH_EPO_tree_single_thread(root_node: BVHNode, alpha: float, levels: int, use_epo: bool=False):
     nodes_hierarchy: list[list[NodeData]] = [[] for _ in range(levels + 1)]
     nodes_hierarchy[0].append(NodeData(node=root_node, overlapping_prims=[]))
@@ -355,7 +358,7 @@ def compute_cost_without_epo(task: Tuple[Axis, float, BVHNode, list[Primitive3],
                 best_split.axis = axis
         return  best_split.cost, best_split.cost, 0, best_split.axis, best_split.offset, [], []
 
-
+# not working because of removal of leaf check in BVHNode.split()
 def build_greedy_SAH_EPO_tree_multi_thread(root_node: BVHNode, alpha: float, levels: int, max_workes:int = os.cpu_count(), use_epo: bool=False):
 
     print("Calulating root node's prims surface...")

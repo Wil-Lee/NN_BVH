@@ -7,6 +7,7 @@ import nss_kd_tree
 TREE_DATASET_DIR = os.path.join(os.getcwd(), 'machine_learning', 'datasets')
 TRAIN_SCENES_DIR = os.path.join(os.getcwd(), 'machine_learning', 'train_scenes')
 TEST_SCENES_DIR = os.path.join(os.getcwd(), 'machine_learning', 'test_scenes')
+BENCH_SCENES_DIR = os.path.join(os.getcwd(), 'machine_learning', 'bench_scenes')
 TREE_DIR =  os.path.join(os.getcwd(), 'machine_learning', 'trees')
 
 # adjustable hyperparameters
@@ -56,6 +57,7 @@ init_config = {
     'batch_size' : batch_size, 
     'train_scenes_dir' : TRAIN_SCENES_DIR,
     'test_scenes_dir' : TEST_SCENES_DIR,
+    'bench_scenes_dir': BENCH_SCENES_DIR,
     'output_tree_dir' : TREE_DIR,
     'batch_amount' : batch_amount,
     'test_sets' : test_primitive_clouds_per_scene,

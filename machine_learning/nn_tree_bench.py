@@ -58,34 +58,24 @@ def build_tree_from_nn_prediction(root_node: nn_BVH.BVHNode, tree_structure: np.
 
     levels = int(math.log2(len(tree_structure) + 1))
     
-    hierachy: list[nn_BVH.BVHNode] = [-1 for i in range(2 ** (levels + 1))]
+    hierachy: list[nn_BVH.BVHNode] = [-1 for i in range(2 ** (levels + 1) - 1)]
     hierachy[0] = root_node
     hierachy_index = 1
     skip_index = []
-    are_splits_valid = True
     
     for index in range(len(tree_structure)):
-        if index not in skip_index:
-            if hierachy[index].split(axes[index], offsets[index]):
-                hierachy[hierachy_index] = (hierachy[index].left_child)
-                hierachy[hierachy_index + 1] = (hierachy[index].right_child)
-            else:
-                skip_index.append(hierachy_index)
-                skip_index.append(hierachy_index + 1)
+        hierachy[index].split(axes[index], offsets[index])
+        hierachy[hierachy_index] = hierachy[index].left_child
+        hierachy[hierachy_index + 1] = hierachy[index].right_child
         hierachy_index += 2
+        if len(hierachy[index].left_child.primitives) <= nn_BVH.MAX_PRIMITIVES_PER_LEAF:
+            hierachy[index].left_child.is_leaf = True
+        if len(hierachy[index].right_child.primitives) <= nn_BVH.MAX_PRIMITIVES_PER_LEAF:
+            hierachy[index].right_child.is_leaf
 
-    for index, node_opt in enumerate(hierachy):
-        if node_opt == -1:
-            continue
-        if len(node_opt.primitives) == 0:
-            node_opt.parent.left_child = None
-            node_opt.parent.right_child = None
-            node_opt.parent.is_leaf = True
-            are_splits_valid = False
-        elif index >= (2 ** levels) - 1:
-            node_opt.is_leaf = True
-    if not are_splits_valid:
-        print("Invalid predicted offsets or offset did not lead to an empty split!")
+    for i in range((2 ** levels) - 1, len(hierachy)):
+            hierachy[i].is_leaf = True
+
 
 
 def main():
@@ -101,6 +91,7 @@ def main():
         config = nss_global_config.epo_config.copy()
         nn = Model(config)
         generator = nss_data_stream.primitive_cloud_generator(config)
+        if 1:
         scenes_for_prediction, scene_names_pred = generator.get_base_scenes_for_nn_prediction()
         scenes_for_evaluation = generator.get_base_scenes_for_evalutation()
         assert len(scenes_for_prediction) == len(scenes_for_evaluation), "amount of train and test scenes are not equal"
@@ -119,17 +110,40 @@ def main():
 
             build_tree_from_nn_prediction(root_node_nn_prediction, tree_structure)
 
+                print(f"Evaluating SAH and EPO cost for: {scene_name_eval}...")
             sah_tree: float = nn_loss.SAH(root_node_nn_prediction)
             epo_tree: float = nn_loss.EPO(root_node_nn_prediction)
 
             print(f"{scene_name_eval} pre_SAH: {sah_tree}")
             print(f"{scene_name_eval} pre_EPO: {epo_tree}\n")
+                root_node_nn_prediction.print_tree()
+        
+        bench_scenes = generator.load_bench_scenes()
+        for s in bench_scenes.values():
+            scene_mesh = s.scene
+            scene_name = s.name
+            scene_prim_cloud = s.prim_cloud
+            tree_structure = nn.get_prediction(config=config, scene=scene_prim_cloud)
+
+            scene_aabb = nn_AABB.get_AABB_from_primitives(scene_mesh.primitives)
+            root_node_nn_prediction = nn_BVH.BVHNode(scene_aabb, scene_mesh.primitives)
+
+            build_tree_from_nn_prediction(root_node_nn_prediction, tree_structure)
+
+            print(f"Evaluating SAH and EPO cost for: {scene_name}...")
+            sah_tree: float = nn_loss.SAH(root_node_nn_prediction)
+            epo_tree: float = nn_loss.EPO(root_node_nn_prediction)
+
+            print(f"{scene_name} pre_SAH: {sah_tree}")
+            print(f"{scene_name} pre_EPO: {epo_tree}\n")
+            root_node_nn_prediction.print_tree()
+
 
     else:
         # manual selection
-    path = "machine_learning/bedroom_LowPoly.obj"
+        path = "machine_learning/test_scenes/bedroom_LowPoly_test.obj"
     p_mesh = nn_parser.parse_obj_file_with_meshes(path)
-    p_mesh.primitives = nn_parser.scale_scene(p_mesh.primitives)
+        nn_parser.scale_scene(p_mesh.primitives)
     aabb = nn_AABB.get_AABB_from_primitives(p_mesh.primitives)
     root_node_optimal = nn_BVH.BVHNode(aabb, p_mesh.primitives)
     
