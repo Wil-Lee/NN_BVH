@@ -185,7 +185,7 @@ def left_child_bounds(beta, axis_points, parent_mask, parent_min, parent_max, of
         upstream_grad = tf.einsum('bi, bi -> bi', upstream_grad, tf.cast(offset[..., 0] <= parent_max, tf.float32))
         return None, None, None, None, None, upstream_grad
 
-    grad(tf.constant(shape=(80,1), value=1.0, dtype=tf.float32)) # debug
+    #grad(tf.constant(shape=(80,1), value=1.0, dtype=tf.float32)) # debug
     return left_child_max_bound, grad
 
 
