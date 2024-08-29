@@ -157,12 +157,12 @@ def left_child_bounds(beta, axis_points, parent_mask, parent_min, parent_max, of
 
     @tf.function
     def next_step(mask, offset):
-        above_max = tf.reduce_max(maxs) + 0.01
+        above_max = tf.reduce_max(maxs, axis=1) + 0.01
 
         prims_right_to_left_max_bound_mask = tf.einsum('bij, bij -> bij', parent_mask, tf.cast(left_child_max_bound[..., tf.newaxis] < mids, tf.float32))
         mids_prim_right_to_left_max_bound = tf.einsum('bij, bij -> bij', mids, prims_right_to_left_max_bound_mask)
 
-        prims_right_to_left_max_bound_mask_scaled_inversed = tf.abs(prims_right_to_left_max_bound_mask - 1) * above_max
+        prims_right_to_left_max_bound_mask_scaled_inversed = tf.abs(prims_right_to_left_max_bound_mask - 1) * above_max[:, tf.newaxis, :]
         mids_prim_right_to_left_max_bound_non_zero = mids_prim_right_to_left_max_bound + prims_right_to_left_max_bound_mask_scaled_inversed
         offset_above = tf.reduce_min(mids_prim_right_to_left_max_bound_non_zero, axis=1, keepdims=True)
 
@@ -185,7 +185,7 @@ def left_child_bounds(beta, axis_points, parent_mask, parent_min, parent_max, of
         upstream_grad = tf.einsum('bi, bi -> bi', upstream_grad, tf.cast(offset[..., 0] <= parent_max, tf.float32))
         return None, None, None, None, None, upstream_grad
 
-    #grad(tf.constant(shape=(32,1), value=1.0, dtype=tf.float32)) # debug
+    grad(tf.constant(shape=(80,1), value=1.0, dtype=tf.float32)) # debug
     return left_child_max_bound, grad
 
 
@@ -200,10 +200,10 @@ def right_child_bounds(beta, axis_points, parent_mask, parent_min, parent_max, o
 
     right_child_prims_mask = tf.einsum('bij, bij -> bij', parent_mask, tf.cast(offset < mids, tf.float32))
 
-    above_max = tf.reduce_max(maxs) + 0.01
+    above_max = tf.reduce_max(maxs, axis=1) + 0.01
 
     # needed to eliminate 0s for reduce_min by adding total_max to all 0s of right child's primitives
-    right_child_prims_mask_scaled_inversed = tf.abs(right_child_prims_mask - 1) * above_max
+    right_child_prims_mask_scaled_inversed = tf.abs(right_child_prims_mask - 1) * above_max[:, tf.newaxis, :]
 
     right_child_prims_non_zero = right_child_prims_mask_scaled_inversed + tf.einsum('bij, bij -> bij', mins, right_child_prims_mask)
     right_child_min_bound = tf.reduce_min(right_child_prims_non_zero, axis=1)
@@ -218,7 +218,7 @@ def right_child_bounds(beta, axis_points, parent_mask, parent_min, parent_max, o
 
         offset_below_mask = tf.cast(tf.equal(mids_prim_left_to_right_min_bound, offset_below), tf.float32)
         offset_below_prims_mins = tf.einsum('bij, bij -> bij', mins, offset_below_mask)
-        offset_below_mask_scaled_inversed = tf.abs(offset_below_mask - 1) * above_max
+        offset_below_mask_scaled_inversed = tf.abs(offset_below_mask - 1) * above_max[:, tf.newaxis, :]
         offset_below_prims_max_non_zero = offset_below_prims_mins + offset_below_mask_scaled_inversed
         bound_below = tf.reduce_min(offset_below_prims_max_non_zero, axis=1, keepdims=True)
 
@@ -646,7 +646,7 @@ def qL_fn_SAH(beta, axis_points, parent_mask, parent_min, parent_max, offset):
     left_child_prims_mask = tf.einsum('bij, bij -> bij', parent_mask, tf.cast(mids <= split_offset, tf.float32))
     right_child_prims_mask = tf.einsum('bij, bij -> bij', parent_mask, tf.cast(mids > split_offset, tf.float32))
     
-    above_max = tf.reduce_max(maxs) + 0.05
+    above_max = tf.reduce_max(maxs, axis=1) + 0.01
     
     N = tf.reduce_sum(left_child_prims_mask, axis=1)
     
@@ -654,7 +654,7 @@ def qL_fn_SAH(beta, axis_points, parent_mask, parent_min, parent_max, offset):
     def next_step(mask):
         right_child_prims_mids = tf.einsum('bij, bij -> bij', mids, right_child_prims_mask)
 
-        right_child_prims_mids_non_zero = ((tf.abs(right_child_prims_mask - 1)) * above_max) + right_child_prims_mids
+        right_child_prims_mids_non_zero = ((tf.abs(right_child_prims_mask - 1)) * above_max[:, tf.newaxis, :]) + right_child_prims_mids
 
         offset_above = tf.reduce_min(right_child_prims_mids_non_zero, axis=1, keepdims=True)
         prims_increase = tf.reduce_sum(tf.cast(tf.equal(right_child_prims_mids, offset_above), tf.float32), axis=1)
