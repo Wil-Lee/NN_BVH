@@ -153,10 +153,11 @@ def left_child_bounds(beta, axis_points, parent_mask, parent_min, parent_max, of
 
     left_child_prims_mask = tf.einsum('bij, bij -> bij', parent_mask, tf.cast(offset >= mids, tf.float32))
     left_child_max_bound = tf.reduce_max(tf.einsum('bij, bij -> bij', maxs, left_child_prims_mask), axis=1)
+    left_child_max_bound = tf.maximum(left_child_max_bound, parent_min)
 
     @tf.function
     def next_step(mask, offset):
-        above_max = tf.reduce_max(maxs) + 0.05
+        above_max = tf.reduce_max(maxs) + 0.01
 
         prims_right_to_left_max_bound_mask = tf.einsum('bij, bij -> bij', parent_mask, tf.cast(left_child_max_bound[..., tf.newaxis] < mids, tf.float32))
         mids_prim_right_to_left_max_bound = tf.einsum('bij, bij -> bij', mids, prims_right_to_left_max_bound_mask)
@@ -199,13 +200,14 @@ def right_child_bounds(beta, axis_points, parent_mask, parent_min, parent_max, o
 
     right_child_prims_mask = tf.einsum('bij, bij -> bij', parent_mask, tf.cast(offset < mids, tf.float32))
 
-    above_max = tf.reduce_max(maxs) + 0.05
+    above_max = tf.reduce_max(maxs) + 0.01
 
     # needed to eliminate 0s for reduce_min by adding total_max to all 0s of right child's primitives
     right_child_prims_mask_scaled_inversed = tf.abs(right_child_prims_mask - 1) * above_max
 
     right_child_prims_non_zero = right_child_prims_mask_scaled_inversed + tf.einsum('bij, bij -> bij', mins, right_child_prims_mask)
     right_child_min_bound = tf.reduce_min(right_child_prims_non_zero, axis=1)
+    right_child_min_bound = tf.minimum(right_child_min_bound, parent_max)
 
     @tf.function
     def next_step(mask, offset):
