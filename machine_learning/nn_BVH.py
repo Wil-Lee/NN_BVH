@@ -195,7 +195,7 @@ def build_greedy_SAH_tree_tf(root_node: BVHNode, alpha: float, levels: int, prin
     nodes_hierarchy: list[list[NodeData]] = [[] for _ in range(levels + 1)]
     nodes_hierarchy[0].append(NodeData(node=root_node, overlapping_prims=[]))
 
-    BATCH_SIZE_GPU = 256
+    BATCH_SIZE_GPU = 24
 
     for level in range(levels):
         for node_index, node_data in enumerate(nodes_hierarchy[level]):

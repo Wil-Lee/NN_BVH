@@ -69,12 +69,21 @@ def buildNetworkName(strat, lvls, pc_size, capacity) :
         str(pc_size),
         str(capacity),)
 
+def build_network_name_EPO(lvls, pc_size, capacity, learning_rate, alpha, data_points):
+    return'{0}lvl_{1}pc_{2}capacity_{3}learningRate_{4}_alpha_{5}dataPoints'.format(
+        str(lvls), str(pc_size), str(capacity), str(learning_rate, str(alpha), str(data_points))
+    )
+
 epo_config = init_config.copy()
 epo_config['tree_strat'] = nss_kd_tree.strategy.SURFACE_HEURISTIC_GREEDY
-epo_config['name'] = buildNetworkName(
-    epo_config['tree_strat'], epo_config['tree_levels'],
-    epo_config['point_cloud_size'],
-    epo_config['dense_units_point_enc'])
+epo_config['name'] = build_network_name_EPO(
+    lvls=epo_config['tree_levels'],
+    pc_size=epo_config['point_cloud_size'],
+    capacity=epo_config['dense_units_point_enc'],
+    learning_rate=epo_config['learning_rate'],
+    alpha=EPO_SAH_alpha
+    data_points=batch_amount * batch_size
+)
 epo_config['EPO'] = True
 epo_config['weight_fn'] = nss_tree_modules.sah_eval() # TODO: maybe change
 epo_config['pooling_fn'] = nss_tree_modules.pool_treelet_EPO(t, t_isect, 4 if init_config['train_unbalanced'] else 3,

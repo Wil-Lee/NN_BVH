@@ -96,7 +96,7 @@ def main():
     os.environ['TF_XLA_FLAGS'] = '--tf_xla_enable_xla_devices'
     os.environ['TF_GPU_THREAD_MODE'] = 'gpu_private'
 
-    evaluate_model: bool = 1
+    evaluate_model: bool = 0
     if evaluate_model:
         config = nss_global_config.epo_config.copy()
         nn = Model(config)

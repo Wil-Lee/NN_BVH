@@ -77,7 +77,8 @@ class pointcloud_stream :
 ####################################################### EDIT ##################################################################################
 
 class Scene:
-    def __init__(self, _meshes: nn_mesh_list.Mesh3List, batch_size, primitive_cloud_size: float, rng_seed):
+    def __init__(self, _meshes: nn_mesh_list.Mesh3List, batch_size, primitive_cloud_size: float, rng_seed, name: str="_"):
+        self.name = name
         self.prim_cloud_size = primitive_cloud_size
         self.batch_size = batch_size
         self.rng_seed = rng_seed
@@ -113,7 +114,7 @@ class Scene:
         
         # take samples
         # special case for non moveable objects
-        samples_non_moveable = 24 # 6 Walls * 2 Polygons per wall * 2 both sides of wall
+        samples_non_moveable = 48
         if samples_non_moveable < non_moveable_mesh_range.up:
             prims_with_size = []
             for i in range(non_moveable_mesh_range.up):
@@ -247,12 +248,13 @@ class primitive_cloud_generator:
         for scene_file in os.listdir(self.train_scene_folder):
             if not scene_file.endswith('.obj'):
                 continue
-            self.scene_names.append(scene_file[:-10])
+            scene_name = scene_file[:-10]
+            self.scene_names.append(scene_name)
             print("Loading ", scene_file, "...")
             scene_meshes = nn_parser.parse_obj_file_with_meshes(os.path.join(self.train_scene_folder, scene_file))
             nn_parser.scale_scene(scene_meshes.primitives, 1)
 
-            sc = Scene(scene_meshes, self.batch_size, self.prim_cloud_size, 83242)
+            sc = Scene(scene_meshes, self.batch_size, self.prim_cloud_size, 83242, name=scene_name)
             self.scenes.append(sc)
             #self.test_dataset.extend(sc.get_test_dataset(config['test_sets']))
         #self.test_dataset = tf.convert_to_tensor(self.test_dataset, dtype=tf.float32)
