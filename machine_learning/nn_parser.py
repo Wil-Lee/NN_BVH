@@ -187,14 +187,34 @@ def scale_scene(primitives: list[Primitive3], shift: int = 0):
             primitive3[0][0] += x_shift
             primitive3[1][0] += x_shift
             primitive3[2][0] += x_shift
+    elif bounds.x_min > 0:
+        x_shift = -bounds.x_min
+        for primitive3 in primitives:
+            primitive3[0][0] += x_shift
+            primitive3[1][0] += x_shift
+            primitive3[2][0] += x_shift
+
     if bounds.y_min < 0:
         y_shift = abs(bounds.y_min)
         for primitive3 in primitives:
             primitive3[0][1] += y_shift
             primitive3[1][1] += y_shift
             primitive3[2][1] += y_shift
+    elif bounds.y_min > 0:
+        y_shift = -bounds.y_min
+        for primitive3 in primitives:
+            primitive3[0][1] += y_shift
+            primitive3[1][1] += y_shift
+            primitive3[2][1] += y_shift
+
     if bounds.z_min < 0:
         z_shift = abs(bounds.z_min)
+        for primitive3 in primitives:
+            primitive3[0][2] += z_shift
+            primitive3[1][2] += z_shift
+            primitive3[2][2] += z_shift
+    elif bounds.z_min > 0:
+        z_shift = -bounds.z_min
         for primitive3 in primitives:
             primitive3[0][2] += z_shift
             primitive3[1][2] += z_shift
@@ -227,6 +247,6 @@ def scale_scene(primitives: list[Primitive3], shift: int = 0):
         p[2][1] /= max_extent
         p[2][1] += shift
         p[2][2] /= max_extent
-        p[2][2] += shift
+        p[2][2] += shift    
 
     return primitives
