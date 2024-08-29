@@ -81,7 +81,7 @@ epo_config['name'] = build_network_name_EPO(
     pc_size=epo_config['point_cloud_size'],
     capacity=epo_config['dense_units_point_enc'],
     learning_rate=epo_config['learning_rate'],
-    alpha=EPO_SAH_alpha
+    alpha=EPO_SAH_alpha,
     data_points=batch_amount * batch_size
 )
 epo_config['EPO'] = True
