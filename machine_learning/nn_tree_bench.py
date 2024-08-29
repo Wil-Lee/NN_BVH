@@ -86,15 +86,15 @@ def main():
     os.environ['TF_XLA_FLAGS'] = '--tf_xla_enable_xla_devices'
     os.environ['TF_GPU_THREAD_MODE'] = 'gpu_private'
 
-    evaluate_model: bool = 0
+    evaluate_model: bool = 1
     if evaluate_model:
         config = nss_global_config.epo_config.copy()
         nn = Model(config)
         generator = nss_data_stream.primitive_cloud_generator(config)
-        if 1:
         scenes_for_prediction, scene_names_pred = generator.get_base_scenes_for_nn_prediction()
         scenes_for_evaluation = generator.get_base_scenes_for_evalutation()
         assert len(scenes_for_prediction) == len(scenes_for_evaluation), "amount of train and test scenes are not equal"
+        bench_scenes = generator.load_bench_scenes()
 
         for i in range(len(scenes_for_prediction)):
             scene_name_pred = scene_names_pred[i]
@@ -110,7 +110,7 @@ def main():
 
             build_tree_from_nn_prediction(root_node_nn_prediction, tree_structure)
 
-                print(f"Evaluating SAH and EPO cost for: {scene_name_eval}...")
+            print(f"\n\nEvaluating SAH and EPO cost for: {scene_name_eval}...")
             sah_tree: float = nn_loss.SAH(root_node_nn_prediction)
             epo_tree: float = nn_loss.EPO(root_node_nn_prediction)
 
@@ -118,7 +118,7 @@ def main():
             print(f"{scene_name_eval} pre_EPO: {epo_tree}\n")
                 root_node_nn_prediction.print_tree()
         
-        bench_scenes = generator.load_bench_scenes()
+        
         for s in bench_scenes.values():
             scene_mesh = s.scene
             scene_name = s.name
@@ -130,7 +130,7 @@ def main():
 
             build_tree_from_nn_prediction(root_node_nn_prediction, tree_structure)
 
-            print(f"Evaluating SAH and EPO cost for: {scene_name}...")
+            print(f"\n\nEvaluating SAH and EPO cost for: {scene_name}...")
             sah_tree: float = nn_loss.SAH(root_node_nn_prediction)
             epo_tree: float = nn_loss.EPO(root_node_nn_prediction)
 
