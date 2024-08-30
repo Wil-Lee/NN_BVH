@@ -139,7 +139,7 @@ class BVHNode:
         line_prefix = f"{indent}Node: {node_index}, {parent_str}"
 
         if node.is_leaf:
-            print(f"{line_prefix} -> Leaf Node, Amount of leafs: {len(node.primitives)}")
+            print(f"{line_prefix} -> Leaf Node, Amount of primitives: {len(node.primitives)}")
         else:
             print(f"{line_prefix} -> {node.split_dimension}, Offset: {node.split_offset}")
             
