@@ -1,14 +1,15 @@
 # credits: https://github.com/cgaueb/nss
 import os
 import tensorflow as tf
+tf.random.set_seed(23445)
+
 from tensorflow.keras import backend
-#tf.config.experimental.set_visible_devices([], 'GPU')
-#tf.debugging.set_log_device_placement(True)
 tf.config.experimental.set_memory_growth(tf.config.experimental.list_physical_devices('GPU')[0], True)
-#tf.config.set_logical_device_configuration(tf.config.experimental.list_physical_devices('GPU')[0], [tf.config.LogicalDeviceConfiguration(memory_limit=4096)])
 
 import nss_global_config
 import nss_treeNet_model
+
+
 
 
 def train_sah() :
@@ -25,7 +26,7 @@ def train_EPO():
     net = nss_treeNet_model.neural_kdtree(nss_global_config.epo_config, 'EPO_tree')
     net.train_EPO()
 
-    
+
 def main():
     train_EPO()
     #train_sah()
