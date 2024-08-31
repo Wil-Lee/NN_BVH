@@ -10,8 +10,6 @@ import nss_global_config
 import nss_treeNet_model
 
 
-
-
 def train_sah() :
     net = nss_treeNet_model.neural_kdtree(nss_global_config.sah_config, 'test_tree')
     net.train()
