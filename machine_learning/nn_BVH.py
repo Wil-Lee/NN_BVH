@@ -190,11 +190,9 @@ def bench(name):
 import nn_loss
 import tensorflow as tf
 
-def build_greedy_SAH_tree_tf(root_node: BVHNode, alpha: float, levels: int, print_progress=False):
+def build_greedy_SAH_tree_tf(root_node: BVHNode, alpha: float, levels: int, batch_size_gpu: int = 8, print_progress=False):
     nodes_hierarchy: list[list[NodeData]] = [[] for _ in range(levels + 1)]
     nodes_hierarchy[0].append(NodeData(node=root_node, overlapping_prims=[]))
-
-    BATCH_SIZE_GPU = 256
 
     for level in range(levels):
         for node_index, node_data in enumerate(nodes_hierarchy[level]):
@@ -205,7 +203,7 @@ def build_greedy_SAH_tree_tf(root_node: BVHNode, alpha: float, levels: int, prin
             
             parent_prims = tf.constant(node_data.node.primitives, dtype=tf.float32)
             parent_prims = tf.expand_dims(parent_prims, axis=0)
-            parent_prims = tf.tile(parent_prims, multiples=[BATCH_SIZE_GPU, 1,1,1])
+            parent_prims = tf.tile(parent_prims, multiples=[batch_size_gpu, 1,1,1])
             for axis in Axis:
                 
                 p_aabb = node_data.node.aabb
@@ -230,13 +228,13 @@ def build_greedy_SAH_tree_tf(root_node: BVHNode, alpha: float, levels: int, prin
                 split_offsets = split_offsets.numpy()
 
                 batch_offsets: np.ndarray = []
-                for start in range(0, len(split_offsets), BATCH_SIZE_GPU):
-                    end = min(start + BATCH_SIZE_GPU, len(split_offsets))
+                for start in range(0, len(split_offsets), batch_size_gpu):
+                    end = min(start + batch_size_gpu, len(split_offsets))
                     batch_offsets.append(np.array(split_offsets[start:end]))
                 
                 last_len = len(batch_offsets[len(batch_offsets) - 1])
-                if last_len < BATCH_SIZE_GPU:
-                    fill = np.array([p_aabb.get_max(axis) for i in range(BATCH_SIZE_GPU - last_len)])
+                if last_len < batch_size_gpu:
+                    fill = np.array([p_aabb.get_max(axis) for i in range(batch_size_gpu - last_len)])
                     batch_offsets[len(batch_offsets) - 1] = np.concatenate((batch_offsets[len(batch_offsets) - 1], fill), axis=None)
 
                 for i, offset in enumerate(batch_offsets):
