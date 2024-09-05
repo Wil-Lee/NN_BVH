@@ -234,7 +234,7 @@ class EPO_recur_trainLog(keras.callbacks.Callback) :
     def on_train_begin(self, logs=None) :
         self.epoch_offset = 0
 
-        if self.isCheckpoint :
+        if self.isCheckpoint and not self.pConfig['EPO']:
             self.df_train = pd.read_csv(os.path.join(self.dir, 'train_records.csv'))
             self.epoch_offset = self.df_train['epoch'].iloc[-1]
             self.best_rec_cost = np.min(self.df_train['pred_cost_MACost_norm'])
