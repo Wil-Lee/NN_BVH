@@ -36,6 +36,13 @@ class neural_kdtree :
         prim_cloud_gen: nss_data_stream.primitive_cloud_generator = nss_data_stream.primitive_cloud_generator(self.config) 
         test_ds = prim_cloud_gen.test_dataset
 
+        if pIsCheckpoint:
+            print("Restore scene translations...")
+            for i in range(self.config['batch_amount']):
+                if i % 30 == 0:
+                    print('{0}/{1}'.format(i, self.config['batch_amount']))
+                prim_cloud_gen.get_next_batch()
+
         train_cb = nss_callbacks.EPO_recur_trainLog(self.config, test_ds, self.mModel, self.mName, pIsCheckpoint)
 
         train_cb.on_train_begin()
@@ -70,7 +77,10 @@ class neural_kdtree :
 
                 print('elapsed time: {0:.2f} - '.format(time.time() - t0), end='', flush=False)
                 for key, value in batch_loss.items() :
-                    print('{0}: {1:.4f} - '.format(key, value), end='', flush=False)
+                    if key == 'loss' or 'tree_loss':
+                        print('{0}: {1:.16f} - '.format(key, value), end='', flush=False)
+                    else:
+                        print('{0}: {1:.4f} - '.format(key, value), end='', flush=False)
                 print('', flush=True)
                 step += 1
                 batch = prim_cloud_gen.get_next_batch()
@@ -179,7 +189,10 @@ class neural_kdtree :
     def load_trained_model(self, load_optimizer=True) :
 
         if load_optimizer :
-            zero_input = tf.zeros(shape=(self.mBatchSize, self.mPCSize, 3), dtype=tf.float32)
+            if self.config['EPO']:
+                zero_input = tf.zeros(shape=(self.mBatchSize, self.mPCSize, 9), dtype=tf.float32)
+            else:
+                zero_input = tf.zeros(shape=(self.mBatchSize, self.mPCSize, 3), dtype=tf.float32)
             self.mModel.predict_step(zero_input)
             opt_weights = np.load(os.path.join(self.mRootFolder, 'opt_state') + '.npy', allow_pickle=True)
             model_vars = self.mModel.trainable_weights
@@ -189,13 +202,17 @@ class neural_kdtree :
             [x.assign(y) for x,y in zip(model_vars, saved_vars)]
             self.mModel.optimizer.set_weights(opt_weights)
 
-            print('Num params {0}'.format(self.mModel.get_num_params().numpy()))
+            #print('Num params {0}'.format(self.mModel.get_num_params().numpy()))
 
         self.mModel.load_weights(os.path.join(self.mRootFolder, 'model_weights'))
 
     def continue_training(self) :
         self.load_trained_model()
-        self.train(True)
+
+        if self.config['EPO']:
+            self.train_EPO(True)
+        else:
+            self.train(True)
 
     def predict(self, point_clouds, useGreedyInference) :
         input_pc = np.array(point_clouds)
