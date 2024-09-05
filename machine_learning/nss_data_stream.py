@@ -268,8 +268,6 @@ class primitive_cloud_generator:
 
 
     def get_next_batch(self):
-        if self.scene_iter >= self.batch_limit:
-            return tf.constant([], dtype=tf.float32)
         cur_scene: Scene = self.scenes[self.scene_iter % len(self.scenes)]
         self.scene_iter += 1
         with warnings.catch_warnings():
