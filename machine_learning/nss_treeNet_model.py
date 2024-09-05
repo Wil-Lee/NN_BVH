@@ -51,8 +51,8 @@ class neural_kdtree :
         for epoch in range(numEpochs) :
             global_loss_log = {}
             batch = prim_cloud_gen.get_next_batch()
-            step = 0
-            while tf.size(batch) > 0:
+            
+            for step in range(self.config['batch_amount']):
                 
                 print('Epoch {0}/{1} - batch {2}/{3} - '.format(epoch + 1, numEpochs,
                     step + 1, prim_cloud_gen.batch_limit,), end='', flush=True)
