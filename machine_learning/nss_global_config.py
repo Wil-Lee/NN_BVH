@@ -25,7 +25,7 @@ i_isect = 1.0
 t_isect = 1.2
 """ Corresponds to C_inn of EPO paper. """
 t = 1.0
-learning_rate = 0.0001
+learning_rate = 0.00001 #0.000001 # 0.0001
 gamma = 1.0
 beta = 1.0
 # not supported for EPO:

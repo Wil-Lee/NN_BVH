@@ -5,7 +5,6 @@ tf.random.set_seed(23445)
 
 from tensorflow.keras import backend
 tf.config.experimental.set_memory_growth(tf.config.experimental.list_physical_devices('GPU')[0], True)
-
 import nss_global_config
 import nss_treeNet_model
 
@@ -23,6 +22,7 @@ def train_vh() :
 def train_EPO():
     net = nss_treeNet_model.neural_kdtree(nss_global_config.epo_config, 'EPO_tree')
     net.train_EPO()
+    #net.continue_training()
 
 
 def main():

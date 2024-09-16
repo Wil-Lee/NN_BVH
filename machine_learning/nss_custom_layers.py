@@ -3,6 +3,7 @@ import nss_tree_common
 from tensorflow import keras
 from tensorflow.keras.layers import Conv2D, Flatten
 
+
 class recursive_tree_level_encoder(tf.keras.layers.Layer) :
     def __init__(self, lvl, **pConfig) :
         super(recursive_tree_level_encoder, self).__init__(name='tree_level_encoder_{0}'.format(lvl))
@@ -104,7 +105,7 @@ class recursive_tree_level_encoder_EPO(tf.keras.layers.Layer) :
         super(recursive_tree_level_encoder_EPO, self).__init__(name='tree_level_encoder_{0}'.format(lvl))
 
         self.projection_layer = self._get_linear2D(1, (1, 1), (1, 1), 'proj_layer_' + str(lvl), activ='linear', kernel_init='glorot_uniform')
-        self.layer0 = self._get_linear2D(pConfig['dense_units_point_enc'], (1, 3), (1, 3), 'Conv_layer_0_' + str(lvl), activ='relu', kernel_init='he_uniform') # *2 to first argument
+        self.layer0 = self._get_linear2D(pConfig['dense_units_point_enc'], (1, 3), (1, 3), 'Conv_layer_0_' + str(lvl), activ='relu', kernel_init='he_uniform')
         self.layer1 = self._get_linear2D(pConfig['dense_units_point_enc'], (1, 1), (1, 1), 'Conv_layer_1_' + str(lvl), activ='relu', kernel_init='he_uniform')
         self.layer2 = self._get_linear2D(pConfig['dense_units_point_enc'], (1, 1), (1, 1), 'Conv_layer_2_' + str(lvl), activ='relu', kernel_init='he_uniform')
         self.layer3 = self._get_linear2D(pConfig['dense_units_point_enc'], (1, 1), (1, 1), 'Conv_layer_3_' + str(lvl), activ='relu', kernel_init='he_uniform')
