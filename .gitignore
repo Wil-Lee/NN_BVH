@@ -9,3 +9,12 @@ build/
 *.vsxproj
 src/ext/*
 .vs/*
+.vscode/*
+machine_learning/__pycache__
+bedroom_LowPoly.pbrt
+bedroom.obj
+bedroomNoFloor.obj
+machine_learning/datasets
+machine_learning/metadata
+machine_learning/plots
+machine_learning/bench_scenes/*
