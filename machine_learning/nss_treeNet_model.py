@@ -36,11 +36,13 @@ class neural_kdtree :
         prim_cloud_gen: nss_data_stream.primitive_cloud_generator = nss_data_stream.primitive_cloud_generator(self.config) 
         test_ds = prim_cloud_gen.test_dataset
 
+        batch_amount = self.config['batch_amount'] * 1
+
         if pIsCheckpoint:
             print("Restore scene translations...")
-            for i in range(self.config['batch_amount']):
+            for i in range(batch_amount):
                 if i % 30 == 0:
-                    print('{0}/{1}'.format(i, self.config['batch_amount']))
+                    print('{0}/{1}'.format(i, batch_amount))
                 prim_cloud_gen.get_next_batch()
 
         train_cb = nss_callbacks.EPO_recur_trainLog(self.config, test_ds, self.mModel, self.mName, pIsCheckpoint)
@@ -82,7 +84,6 @@ class neural_kdtree :
                     else:
                         print('{0}: {1:.4f} - '.format(key, value), end='', flush=False)
                 print('', flush=True)
-                step += 1
                 batch = prim_cloud_gen.get_next_batch()
 
             for key, value in global_loss_log.items() :
